@@ -1,9 +1,14 @@
-//! Library root for test discovery.
+//! Library root for mock-snmp-agent.
+
+/// Default port for this fixture.
+pub const DEFAULT_PORT: u16 = 0;
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn scaffold_compiles() {
-        assert!(true);
+    fn has_default_port() {
+        assert_eq!(DEFAULT_PORT, 0);
     }
 }

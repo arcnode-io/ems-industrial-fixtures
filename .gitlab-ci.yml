@@ -6,14 +6,12 @@ check:
   stage: check
   script:
     - cargo cmd checks
-    - cargo nextest run --lib --no-default-features --profile ci --cargo-profile dev --target x86_64-unknown-linux-gnu
-    - cargo tarpaulin --skip-clean --lib --no-default-features --exclude-files=src/main.rs --target-dir=target/coverage --out Xml
-    - cargo cmd integration
+    - cargo nextest run --workspace --lib --no-default-features --cargo-profile dev --target x86_64-unknown-linux-gnu
+    - cargo tarpaulin --skip-clean --workspace --lib --no-default-features --target-dir=target/coverage --out Xml
   coverage: '/^\d+.\d+% coverage/'
   artifacts:
     when: always
     reports:
-      junit: target/nextest/ci/junit.xml
       coverage_report:
         coverage_format: cobertura
         path: cobertura.xml

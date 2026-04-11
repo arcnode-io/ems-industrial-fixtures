@@ -20,6 +20,22 @@ missing_docs_in_private_items = "warn"
 [workspace.lints.rust]
 missing_docs = "warn"
 
+[package]
+name = "ems-industrial-fixtures"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata.commands]
+depcheck = "cargo +nightly udeps --workspace"
+format = "cargo fmt --all"
+lint = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+typecheck = "cargo check --workspace"
+audit-packages = "cargo audit --ignore RUSTSEC-2025-0055"
+checks = "cargo cmd depcheck && cargo cmd format && cargo cmd lint && cargo cmd typecheck && cargo cmd audit-packages"
+test = "cargo nextest run --workspace"
+cover = "cargo tarpaulin --skip-clean --workspace --target-dir=target/coverage"
+
 [workspace.dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"

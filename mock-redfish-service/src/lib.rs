@@ -1,4 +1,4 @@
-//! Library root for mock-ocpp-station.
+//! Library root for mock-redfish-service.
 
 /// Default port for this fixture.
 pub const DEFAULT_PORT: u16 = 0;

@@ -1,5 +1,5 @@
 [package]
-name = "mock-ocpp-station"
+name = "mock-redfish-service"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

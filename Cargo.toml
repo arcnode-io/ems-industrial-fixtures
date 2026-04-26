@@ -2,9 +2,8 @@
 members = [
     "mock-modbus-server",
     "mock-snmp-agent",
-    "mock-bacnet-server",
+    "mock-redfish-service",
     "mock-dnp3-outstation",
-    "mock-ocpp-station",
     "mock-canbus-node",
 ]
 resolver = "3"

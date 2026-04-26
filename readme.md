@@ -1,7 +1,6 @@
 # EMS Industrial Fixtures 🎭⚙️
 
 ![](https://img.shields.io/gitlab/pipeline-status/arcnode-io/ems-industrial-fixtures?branch=main&logo=gitlab)
-![](https://gitlab.com/arcnode-io/ems-industrial-fixtures/badges/main/coverage.svg)
 ![](https://img.shields.io/badge/1.93-gray?logo=rust)
 
 > Mock protocol implementations for industrial gateway testing
@@ -17,18 +16,16 @@ rectangle industrial_gateway
 rectangle fixtures #line.dashed {
   rectangle mock_modbus_server
   rectangle mock_snmp_agent
-  rectangle mock_bacnet_server
+  rectangle mock_redfish_service
   rectangle mock_dnp3_outstation
-  rectangle mock_ocpp_station
   rectangle mock_canbus_node
 }
 
-industrial_gateway --- mock_modbus_server
-industrial_gateway -- mock_snmp_agent
-industrial_gateway -- mock_bacnet_server
-industrial_gateway -- mock_dnp3_outstation
-industrial_gateway -- mock_ocpp_station
-industrial_gateway -- mock_canbus_node
+industrial_gateway --> mock_modbus_server: Modbus TCP
+industrial_gateway --> mock_snmp_agent: SNMP
+industrial_gateway --> mock_redfish_service: Redfish HTTPS
+industrial_gateway --> mock_dnp3_outstation: DNP3
+industrial_gateway --> mock_canbus_node: CANbus
 ```
 
 ## Fixtures
@@ -37,9 +34,8 @@ industrial_gateway -- mock_canbus_node
 |----------|------|-------------|
 | Modbus TCP | 502 | Mock modbus server |
 | SNMP | 161 | Mock snmp agent |
-| BACnet | 47808 | Mock bacnet server |
+| Redfish | 8443 | Mock redfish service |
 | DNP3 | 20000 | Mock dnp3 outstation |
-| OCPP | 8080 | Mock ocpp station |
 | CANbus | - | Mock canbus node |
 
 ## Docker
@@ -73,9 +69,8 @@ cargo test
 ├── Cargo.toml              # Workspace configuration
 ├── mock-modbus-server/     # Modbus TCP/RTU mock
 ├── mock-snmp-agent/        # SNMP agent mock
-├── mock-bacnet-server/     # BACnet server mock
+├── mock-redfish-service/   # Redfish HTTPS/JSON service mock
 ├── mock-dnp3-outstation/   # DNP3 outstation mock
-├── mock-ocpp-station/      # OCPP charging station mock
 └── mock-canbus-node/       # CANbus node mock
 ```
 

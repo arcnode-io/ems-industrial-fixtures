@@ -122,8 +122,8 @@ async fn build_response(
 
     Pdu {
         request_id: request.request_id,
-        error_status: 0u32.into(),
-        error_index: 0u32.into(),
+        error_status: 0,
+        error_index: 0,
         variable_bindings: response_vars,
     }
 }

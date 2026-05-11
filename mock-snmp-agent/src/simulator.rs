@@ -17,6 +17,7 @@ struct IntSawtooth {
 
 /// Drives the OID value map. Add OIDs by extending `saws`.
 pub struct Simulator {
+    /// All integer-shaped OIDs under simulation.
     saws: Vec<IntSawtooth>,
 }
 

@@ -8,3 +8,9 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+rasn = "0.28"
+rasn-snmp = "0.28"
+rasn-smi = "0.28"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -1,5 +1,6 @@
 stages:
   - check
+  - publish
   - mirror
 
 check:
@@ -15,6 +16,15 @@ check:
       coverage_report:
         coverage_format: cobertura
         path: cobertura.xml
+
+publish-mock-modbus-server:
+  stage: publish
+  script:
+    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
+    - docker build -f mock-modbus-server/Dockerfile -t 173.211.12.43:8083/library/mock-modbus-server .
+    - docker push 173.211.12.43:8083/library/mock-modbus-server
+  only:
+    - main
 
 mirror:
   stage: mirror

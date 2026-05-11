@@ -1,6 +1,6 @@
 //! Data simulator: mutates the OID value map on each tick.
 
-use crate::oids::OID_KWH_DELIVERED;
+use crate::oids::OID_INPUT_CURRENT;
 use std::collections::HashMap;
 
 /// Sawtooth strategy for a single OID with an integer value.
@@ -25,10 +25,10 @@ impl Simulator {
     pub fn new() -> Self {
         Self {
             saws: vec![IntSawtooth {
-                oid: OID_KWH_DELIVERED.to_vec(),
-                min: 1_000_000,
-                max: 1_010_000,
-                step: 100,
+                oid: OID_INPUT_CURRENT.to_vec(),
+                min: 100,
+                max: 200,
+                step: 5,
             }],
         }
     }

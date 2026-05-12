@@ -53,6 +53,15 @@ publish-mock-dnp3-outstation:
   only:
     - main
 
+publish-mock-bacnet-device:
+  stage: publish
+  script:
+    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
+    - docker build -f mock-bacnet-device/Dockerfile -t 173.211.12.43:8083/library/mock-bacnet-device .
+    - docker push 173.211.12.43:8083/library/mock-bacnet-device
+  only:
+    - main
+
 mirror:
   stage: mirror
   variables:

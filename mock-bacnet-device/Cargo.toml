@@ -1,0 +1,15 @@
+[package]
+name = "mock-bacnet-device"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bacnet-rs = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow = "1"

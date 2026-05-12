@@ -5,8 +5,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY mock-redfish-service/Cargo.toml mock-redfish-service/Cargo.toml
 COPY mock-redfish-service/src mock-redfish-service/src
 RUN mkdir -p src && echo "" > src/lib.rs
-RUN mkdir -p mock-modbus-server/src mock-snmp-agent/src mock-dnp3-outstation/src mock-canbus-node/src
-RUN for m in mock-modbus-server mock-snmp-agent mock-dnp3-outstation mock-canbus-node; do \
+RUN mkdir -p mock-modbus-server/src mock-snmp-agent/src mock-dnp3-outstation/src mock-bacnet-device/src
+RUN for m in mock-modbus-server mock-snmp-agent mock-dnp3-outstation mock-bacnet-device; do \
       printf '[package]\nname = "%s"\nversion.workspace = true\nedition.workspace = true\nrust-version.workspace = true\n\n[[bin]]\nname = "%s"\npath = "src/main.rs"\n' "$m" "$m" > $m/Cargo.toml; \
       printf 'fn main() {}\n' > $m/src/main.rs; \
     done

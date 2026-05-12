@@ -34,6 +34,9 @@ impl OutstationInformation for Info {}
 struct Ctl;
 impl ControlHandler for Ctl {}
 
+/// Stamp out a `ControlSupport<$ty>` impl that rejects every select/operate
+/// with `CommandStatus::NotSupported`. Used to satisfy ControlHandler's trait
+/// bounds without writing real command handlers (Tier 1 is read-only).
 macro_rules! reject_control {
     ($ty:ty) => {
         impl ControlSupport<$ty> for Ctl {

@@ -41,3 +41,48 @@ pub async fn tick(values: &Values, strategies: &HashMap<u32, SawStrategy>) {
         guard.insert(*idx, next);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strat() -> HashMap<u32, SawStrategy> {
+        let mut m = HashMap::new();
+        m.insert(
+            1,
+            SawStrategy {
+                min: 7.0,
+                max: 15.0,
+                step: 0.5,
+            },
+        );
+        m
+    }
+
+    #[tokio::test]
+    async fn tick_increments_within_range() {
+        // Arrange
+        let strategies = strat();
+        let values = seed(&strategies);
+        // Act
+        tick(&values, &strategies).await;
+        // Assert
+        let actual = *values.lock().await.get(&1).unwrap();
+        let expected = 7.5;
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn tick_wraps_at_max() {
+        // Arrange
+        let strategies = strat();
+        let values = seed(&strategies);
+        values.lock().await.insert(1, 14.8); // 14.8 + 0.5 > 15.0
+        // Act
+        tick(&values, &strategies).await;
+        // Assert
+        let actual = *values.lock().await.get(&1).unwrap();
+        let expected = 7.0;
+        assert_eq!(actual, expected);
+    }
+}

@@ -115,7 +115,11 @@ async fn build_response(
         let oid = ObjectIdentifier::new(resp_oid).expect("non-empty OID");
         let value = match resp_value {
             Some(v) => VarBindValue::Value(ObjectSyntax::from(v as i32)),
-            None => VarBindValue::EndOfMibView,
+            // Miss-case semantics per RFC 3416:
+            //   GetNextRequest: no lexicographic successor → EndOfMibView
+            //   GetRequest:     OID has no instance        → NoSuchInstance
+            None if is_get_next => VarBindValue::EndOfMibView,
+            None => VarBindValue::NoSuchInstance,
         };
         response_vars.push(VarBind { name: oid, value });
     }

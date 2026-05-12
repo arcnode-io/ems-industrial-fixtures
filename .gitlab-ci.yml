@@ -44,6 +44,15 @@ publish-mock-redfish-service:
   only:
     - main
 
+publish-mock-dnp3-outstation:
+  stage: publish
+  script:
+    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
+    - docker build -f mock-dnp3-outstation/Dockerfile -t 173.211.12.43:8083/library/mock-dnp3-outstation .
+    - docker push 173.211.12.43:8083/library/mock-dnp3-outstation
+  only:
+    - main
+
 mirror:
   stage: mirror
   variables:

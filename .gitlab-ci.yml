@@ -35,6 +35,15 @@ publish-mock-snmp-agent:
   only:
     - main
 
+publish-mock-redfish-service:
+  stage: publish
+  script:
+    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
+    - docker build -f mock-redfish-service/Dockerfile -t 173.211.12.43:8083/library/mock-redfish-service .
+    - docker push 173.211.12.43:8083/library/mock-redfish-service
+  only:
+    - main
+
 mirror:
   stage: mirror
   variables:

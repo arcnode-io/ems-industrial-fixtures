@@ -20,45 +20,45 @@ check:
 publish-mock-modbus-server:
   stage: publish
   script:
-    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
-    - docker build -f mock-modbus-server/Dockerfile -t 173.211.12.43:8083/library/mock-modbus-server .
-    - docker push 173.211.12.43:8083/library/mock-modbus-server
+    - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+    - docker build -f mock-modbus-server/Dockerfile -t public.ecr.aws/y1d2j6a8/mock-modbus-server .
+    - docker push public.ecr.aws/y1d2j6a8/mock-modbus-server
   only:
     - main
 
 publish-mock-snmp-agent:
   stage: publish
   script:
-    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
-    - docker build -f mock-snmp-agent/Dockerfile -t 173.211.12.43:8083/library/mock-snmp-agent .
-    - docker push 173.211.12.43:8083/library/mock-snmp-agent
+    - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+    - docker build -f mock-snmp-agent/Dockerfile -t public.ecr.aws/y1d2j6a8/mock-snmp-agent .
+    - docker push public.ecr.aws/y1d2j6a8/mock-snmp-agent
   only:
     - main
 
 publish-mock-redfish-service:
   stage: publish
   script:
-    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
-    - docker build -f mock-redfish-service/Dockerfile -t 173.211.12.43:8083/library/mock-redfish-service .
-    - docker push 173.211.12.43:8083/library/mock-redfish-service
+    - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+    - docker build -f mock-redfish-service/Dockerfile -t public.ecr.aws/y1d2j6a8/mock-redfish-service .
+    - docker push public.ecr.aws/y1d2j6a8/mock-redfish-service
   only:
     - main
 
 publish-mock-dnp3-outstation:
   stage: publish
   script:
-    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
-    - docker build -f mock-dnp3-outstation/Dockerfile -t 173.211.12.43:8083/library/mock-dnp3-outstation .
-    - docker push 173.211.12.43:8083/library/mock-dnp3-outstation
+    - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+    - docker build -f mock-dnp3-outstation/Dockerfile -t public.ecr.aws/y1d2j6a8/mock-dnp3-outstation .
+    - docker push public.ecr.aws/y1d2j6a8/mock-dnp3-outstation
   only:
     - main
 
 publish-mock-bacnet-device:
   stage: publish
   script:
-    - docker login -u admin -p $HARBOR_PASSWORD 173.211.12.43:8083
-    - docker build -f mock-bacnet-device/Dockerfile -t 173.211.12.43:8083/library/mock-bacnet-device .
-    - docker push 173.211.12.43:8083/library/mock-bacnet-device
+    - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+    - docker build -f mock-bacnet-device/Dockerfile -t public.ecr.aws/y1d2j6a8/mock-bacnet-device .
+    - docker push public.ecr.aws/y1d2j6a8/mock-bacnet-device
   only:
     - main
 

@@ -29,15 +29,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
+    // Real meters tolerate one client; the gateway opens a session per
+    // measurement and floods on a poll cycle. Allow more concurrent
+    // sessions so the smoke doesn't oscillate.
+    let max_sessions: usize = std::env::var("MAX_SESSIONS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(64);
 
     let handler = MeterHandler::new(registers::holding_registers()).wrap();
     let map = ServerHandlerMap::single(UnitId::new(unit_id), handler.clone());
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 
-    info!(%addr, unit_id, tick_ms, "mock-modbus-server listening");
+    info!(%addr, unit_id, tick_ms, max_sessions, "mock-modbus-server listening");
 
     let _server = spawn_tcp_server_task(
-        1,
+        max_sessions,
         addr,
         map,
         AddressFilter::Any,

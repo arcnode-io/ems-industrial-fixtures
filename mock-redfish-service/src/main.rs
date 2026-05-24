@@ -120,7 +120,7 @@ fn build_tls_config() -> Result<RustlsConfig, Box<dyn std::error::Error>> {
         .ok_or("no private key in key PEM")?;
     let server_config = rustls::ServerConfig::builder()
         .with_client_cert_verifier(client_verifier)
-        .with_single_cert(server_certs, PrivateKeyDer::from(key))?;
+        .with_single_cert(server_certs, key)?;
     Ok(RustlsConfig::from_config(Arc::new(server_config)))
 }
 

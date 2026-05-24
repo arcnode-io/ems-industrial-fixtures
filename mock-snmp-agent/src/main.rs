@@ -3,6 +3,7 @@
 
 mod oids;
 mod simulator;
+mod usm;
 
 use rasn::types::ObjectIdentifier;
 use rasn_smi::v2::ObjectSyntax;

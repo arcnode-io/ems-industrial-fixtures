@@ -14,7 +14,7 @@ use axum::extract::State;
 use axum::routing::get;
 use axum_server::tls_rustls::RustlsConfig;
 use rustls::RootCertStore;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::CertificateDer;
 use rustls::server::WebPkiClientVerifier;
 use serde_json::{Value, json};
 use simulator::{Simulator, Thermal};

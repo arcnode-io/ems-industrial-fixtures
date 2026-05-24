@@ -127,7 +127,7 @@ pub async fn handle_v3_datagram(
     let want_auth = flags & 0x01 != 0;
     let want_priv = flags & 0x02 != 0;
 
-    if want_auth && !verify_hmac(&message, &usm_params, &user.auth_key) {
+    if want_auth && !verify_hmac(datagram, &usm_params, &user.auth_key) {
         warn!("auth path: HMAC verification failed");
         return None;
     }
@@ -190,29 +190,34 @@ struct UsmUserSnapshot {
     priv_key: Vec<u8>,
 }
 
-/// Verify HMAC over the original message with `authentication_parameters`
-/// zeroed (RFC 3414 §3.2). Constant-time compare via slice equality is
-/// adequate for non-adversarial test fixture use.
-fn verify_hmac(message: &Message, usm_params: &USMSecurityParameters, auth_key: &[u8]) -> bool {
-    if usm_params.authentication_parameters.len() != usm::AUTH_TRUNC_LEN {
+/// Verify HMAC over the original datagram with `authentication_parameters`
+/// zeroed (RFC 3414 §3.2). Byte-splice the zeros into the raw bytes — we
+/// can't go via decode→re-encode because BER doesn't guarantee canonical
+/// bytes (the client's encoder may make different size/form choices than
+/// ours).
+fn verify_hmac(
+    raw: &[u8],
+    usm_params: &USMSecurityParameters,
+    auth_key: &[u8],
+) -> bool {
+    let auth_params = usm_params.authentication_parameters.as_ref();
+    if auth_params.len() != usm::AUTH_TRUNC_LEN {
         return false;
     }
-    let received = usm_params.authentication_parameters.clone();
-    let mut zeroed_usm = usm_params.clone();
-    zeroed_usm.authentication_parameters = OctetString::from(vec![0_u8; usm::AUTH_TRUNC_LEN]);
-    let mut to_hmac = message.clone();
-    if to_hmac
-        .encode_security_parameters(rasn::Codec::Ber, &zeroed_usm)
-        .is_err()
-    {
+    // Find the `04 10 <16 random bytes>` BER OCTET STRING that holds the
+    // received auth tag. 16-byte cryptographic randomness ⇒ no realistic
+    // collision elsewhere in a small UDP datagram.
+    let mut needle = Vec::with_capacity(2 + usm::AUTH_TRUNC_LEN);
+    needle.push(0x04);
+    needle.push(usm::AUTH_TRUNC_LEN as u8);
+    needle.extend_from_slice(auth_params);
+    let Some(pos) = raw.windows(needle.len()).position(|w| w == needle) else {
         return false;
-    }
-    let bytes = match rasn::ber::encode(&to_hmac) {
-        Ok(b) => b,
-        Err(_) => return false,
     };
-    let computed = usm::hmac_sign(auth_key, &bytes);
-    computed.as_slice() == received.as_ref()
+    let mut zeroed = raw.to_vec();
+    zeroed[pos + 2..pos + 2 + usm::AUTH_TRUNC_LEN].fill(0);
+    let computed = usm::hmac_sign(auth_key, &zeroed);
+    computed.as_slice() == auth_params
 }
 
 /// Build the encrypted+signed reply. Mirror of `verify_hmac` for the
@@ -263,18 +268,22 @@ fn build_authenticated_reply(
     response
         .encode_security_parameters(rasn::Codec::Ber, &response_usm)
         .unwrap_or_else(|e| panic!("response USM encode: {e}"));
-    let with_zero_auth = rasn::ber::encode(&response).expect("encode v3 message");
-    let mac = usm::hmac_sign(&user.auth_key, &with_zero_auth);
-    // Splice the real HMAC into the zero placeholder. Robust splice: re-encode
-    // with the real auth_params (HMAC), preserving message bit-equivalence.
-    let real_usm = USMSecurityParameters {
-        authentication_parameters: OctetString::from(mac),
-        ..response_usm
-    };
-    response
-        .encode_security_parameters(rasn::Codec::Ber, &real_usm)
-        .unwrap_or_else(|e| panic!("response USM re-encode: {e}"));
-    rasn::ber::encode(&response).expect("encode v3 message final")
+    // Encode ONCE with the zero placeholder, HMAC over the resulting bytes,
+    // then byte-splice the real tag in. Encoding a second time risks
+    // producing different bytes (BER encoder may vary form/length choices).
+    let mut bytes = rasn::ber::encode(&response).expect("encode v3 message");
+    let mac = usm::hmac_sign(&user.auth_key, &bytes);
+    let placeholder = [0_u8; usm::AUTH_TRUNC_LEN];
+    let mut needle = Vec::with_capacity(2 + usm::AUTH_TRUNC_LEN);
+    needle.push(0x04);
+    needle.push(usm::AUTH_TRUNC_LEN as u8);
+    needle.extend_from_slice(&placeholder);
+    let pos = bytes
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .expect("zero auth_params placeholder must be present in own encoding");
+    bytes[pos + 2..pos + 2 + usm::AUTH_TRUNC_LEN].copy_from_slice(&mac);
+    bytes
 }
 
 /// Build a REPORT message that announces our engine id to a discovering

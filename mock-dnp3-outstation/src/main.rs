@@ -1,5 +1,11 @@
-//! mock-dnp3-outstation — DNP3 TCP server fixture for gateway testing.
+//! mock-dnp3-outstation — DNP3 TCP / DNP3 over TLS server fixture.
 //! One analog input point (index 0) driven by a simulator.
+//!
+//! Modes selected by env:
+//! - `DNP3_TLS=1` → DNP3/TLS (CA-validated mTLS, TLS 1.3).
+//!   Requires `DNP3_TLS_CA`, `DNP3_TLS_CERT`, `DNP3_TLS_KEY` paths.
+//!   Default port: 19999 (per IEEE 1815 Annex E).
+//! - else → plain DNP3/TCP. Default port: 20000.
 
 mod simulator;
 
@@ -16,10 +22,17 @@ use dnp3::outstation::{
     ConnectionState, ControlHandler, ControlSupport, OperateType, OutstationApplication,
     OutstationConfig, OutstationInformation,
 };
+use dnp3::tcp::tls::{MinTlsVersion, TlsServerConfig};
 use dnp3::tcp::{AddressFilter, Server};
 use simulator::Simulator;
+use std::path::PathBuf;
 use std::time::Duration;
 use tracing::info;
+
+/// Standards-defined DNP3/TLS port per IEEE 1815-2012 Annex E.
+const DNP3_TLS_PORT: u16 = 19999;
+/// De facto DNP3/TCP port (IANA-reserved).
+const DNP3_TCP_PORT: u16 = 20000;
 
 /// Minimal OutstationApplication — defaults are fine for read-only use.
 struct App;
@@ -79,17 +92,25 @@ impl Listener<ConnectionState> for NopListener {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_target(false).init();
 
+    let tls_mode = std::env::var("DNP3_TLS").ok().as_deref() == Some("1");
+    let default_port = if tls_mode { DNP3_TLS_PORT } else { DNP3_TCP_PORT };
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(20000);
+        .unwrap_or(default_port);
     let tick_ms: u64 = std::env::var("TICK_MS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
 
-    let mut server =
-        Server::new_tcp_server(LinkErrorMode::Close, format!("0.0.0.0:{port}").parse()?);
+    let addr = format!("0.0.0.0:{port}").parse()?;
+    let mut server = if tls_mode {
+        let tls_config = build_tls_server_config()?;
+        Server::new_tls_server(LinkErrorMode::Close, addr, tls_config)
+    } else {
+        Server::new_tcp_server(LinkErrorMode::Close, addr)
+    };
+
     let outstation = server.add_outstation(
         outstation_config(),
         Box::new(App),
@@ -113,7 +134,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let _server_handle = server.bind().await?;
-    info!(%port, tick_ms, "mock-dnp3-outstation listening");
+    let mode = if tls_mode { "TLS" } else { "plain" };
+    info!(%port, tick_ms, mode, "mock-dnp3-outstation listening");
 
     // Simulator tick.
     let mut sim = Simulator::new();
@@ -127,6 +149,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::signal::ctrl_c().await?;
     Ok(())
+}
+
+/// Build the DNP3/TLS server config from env-supplied cert paths.
+/// `client_subject_name=None` → accept any CA-validated client cert (no SAN/CN
+/// match required — symmetric to mock-modbus-server's posture).
+fn build_tls_server_config() -> Result<TlsServerConfig, Box<dyn std::error::Error>> {
+    let ca = require_env_path("DNP3_TLS_CA")?;
+    let cert = require_env_path("DNP3_TLS_CERT")?;
+    let key = require_env_path("DNP3_TLS_KEY")?;
+    let tls_config = TlsServerConfig::full_pki(
+        None,
+        &ca,
+        &cert,
+        &key,
+        None,
+        MinTlsVersion::V13,
+    )?;
+    Ok(tls_config)
+}
+
+/// Resolve a required env var into a PathBuf, erroring with the var name.
+fn require_env_path(var: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let raw = std::env::var(var).map_err(|_| format!("missing required env: {var}"))?;
+    Ok(PathBuf::from(raw))
 }
 
 /// Outstation config — single master at addr 1, this outstation at 1024.

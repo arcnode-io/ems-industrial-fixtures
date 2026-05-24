@@ -4,6 +4,7 @@
 mod oids;
 mod simulator;
 mod usm;
+mod v3;
 
 use rasn::types::ObjectIdentifier;
 use rasn_smi::v2::ObjectSyntax;
@@ -16,6 +17,7 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
+use v3::AgentState;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,6 +36,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(%port, tick_ms, "mock-snmp-agent listening");
 
     let values = Arc::new(Mutex::new(oids::initial_values()));
+
+    // Optional SNMPv3 USM — enabled when SNMP_V3_AUTH_PASS is set.
+    // SNMP_V3_USER defaults to "gateway"; matches the gateway's default
+    // security_name in `src/snmp/client.rs`.
+    let agent_state = std::env::var("SNMP_V3_AUTH_PASS").ok().map(|auth_pass| {
+        let priv_pass = std::env::var("SNMP_V3_PRIV_PASS")
+            .expect("SNMP_V3_PRIV_PASS required when v3 is enabled");
+        let user = std::env::var("SNMP_V3_USER").unwrap_or_else(|_| "gateway".to_string());
+        // Deterministic engine id for fixtures so a restart doesn't trigger
+        // the client to re-discover. Format=5 (octets), distinct from any
+        // legitimate enterprise to keep this clearly a test artifact.
+        let engine_id = vec![
+            0x80, 0x00, 0x86, 0x9F, 5, b'm', b'o', b'c', b'k', 0, 0, 0, 1,
+        ];
+        let mut s = AgentState::new(engine_id);
+        s.register_user(&user, auth_pass.as_bytes(), priv_pass.as_bytes());
+        info!(user, "SNMPv3 USM enabled (authPriv SHA-256 / AES-128)");
+        Arc::new(Mutex::new(s))
+    });
 
     // Simulator tick task.
     let sim_values = values.clone();
@@ -54,17 +75,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let datagram = buf[..n].to_vec();
         let socket = socket.clone();
         let values = values.clone();
+        let agent_state = agent_state.clone();
         tokio::spawn(async move {
-            match handle_datagram(&datagram, &values).await {
-                Ok(reply) => {
-                    if let Err(e) = socket.send_to(&reply, peer).await {
-                        warn!(error = %e, "send_to failed");
+            // Branch by SNMP version peeked from the BER header.
+            let reply = if peek_snmp_version(&datagram) == Some(3) {
+                match agent_state {
+                    Some(s) => v3::handle_v3_datagram(&datagram, &s, &values).await,
+                    None => {
+                        warn!("v3 message received but SNMP_V3_AUTH_PASS not set");
+                        None
                     }
                 }
-                Err(e) => warn!(error = %e, "handle_datagram failed"),
+            } else {
+                match handle_datagram(&datagram, &values).await {
+                    Ok(b) => Some(b),
+                    Err(e) => {
+                        warn!(error = %e, "v2c handle_datagram failed");
+                        None
+                    }
+                }
+            };
+            if let Some(reply) = reply
+                && let Err(e) = socket.send_to(&reply, peer).await
+            {
+                warn!(error = %e, "send_to failed");
             }
         });
     }
+}
+
+/// Peek the SNMP version byte from a BER-encoded message. Returns None on
+/// malformed input. Used to dispatch v2c vs v3 before full decode.
+fn peek_snmp_version(datagram: &[u8]) -> Option<u8> {
+    if datagram.first() != Some(&0x30) {
+        return None;
+    }
+    let len_byte = *datagram.get(1)?;
+    let header_len = if len_byte < 0x80 {
+        2
+    } else {
+        2 + usize::from(len_byte & 0x7F)
+    };
+    if datagram.get(header_len) != Some(&0x02) || datagram.get(header_len + 1) != Some(&0x01) {
+        return None;
+    }
+    datagram.get(header_len + 2).copied()
 }
 
 /// Decode a raw datagram, build a Response, encode it back to bytes.
@@ -92,7 +147,9 @@ async fn handle_datagram(
 
 /// Build a Response PDU. For GetRequest: respond with the exact OID's value.
 /// For GetNextRequest: find the lexicographic-next OID in the map.
-async fn build_response(
+///
+/// `pub(crate)` so the v3 module can reuse this for the scoped-PDU payload.
+pub(crate) async fn build_response(
     request: &Pdu,
     values: &Mutex<HashMap<Vec<u32>, i64>>,
     is_get_next: bool,

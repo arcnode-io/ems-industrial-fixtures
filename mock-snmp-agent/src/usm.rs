@@ -1,19 +1,14 @@
 //! USM crypto primitives — RFC 3414 §A.2 key derivation, RFC 7860 HMAC,
 //! RFC 3826 AES-CFB. Used by the v3 message handler.
 
-// Reason: this module is wired into the v3 message handler in the next
-// commit; suppress dead_code until then to keep commits small.
-#![allow(dead_code)]
-
 use cfb_mode::cipher::{AsyncStreamCipher, KeyIvInit};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
-/// Hard-coded for Tier 1: HMAC-SHA-256 auth + AES-128 priv. Matches the
-/// gateway's default snmp3 profile (`Snmpv3AuthProtocol::Sha256` +
-/// `Snmpv3PrivProtocol::Aes128`). Widen later when more variants ship.
-/// SHA-256 digest length — the localized auth key size.
-pub const AUTH_KEY_LEN: usize = 32;
+// Hard-coded for Tier 1: HMAC-SHA-256 auth + AES-128 priv. Matches the
+// gateway's default snmp3 profile (`Snmpv3AuthProtocol::Sha256` +
+// `Snmpv3PrivProtocol::Aes128`). Widen later when more variants ship.
+
 /// AES-128 key length — the leading bytes of the localized auth-key are
 /// reused as the priv key per RFC 3826 §3.1.2.1.
 pub const PRIV_KEY_LEN: usize = 16;
@@ -112,7 +107,7 @@ mod tests {
         // Assert — deterministic + localized
         assert_eq!(key_a1, key_a2);
         assert_ne!(key_a1, key_b);
-        assert_eq!(key_a1.len(), AUTH_KEY_LEN);
+        assert_eq!(key_a1.len(), 32, "SHA-256 digest length");
     }
 
     /// Round-trip: encrypt with random salt then decrypt with same salt

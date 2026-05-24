@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.6
-FROM rust:1.93-slim AS builder
+FROM rust:1.93-slim-bookworm AS builder
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY mock-dnp3-outstation/Cargo.toml mock-dnp3-outstation/Cargo.toml

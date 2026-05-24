@@ -12,8 +12,10 @@ use sha2::{Digest, Sha256};
 /// AES-128 key length — the leading bytes of the localized auth-key are
 /// reused as the priv key per RFC 3826 §3.1.2.1.
 pub const PRIV_KEY_LEN: usize = 16;
-/// RFC 7860 HMAC-SHA-256-128 — auth tag truncated to 16 bytes.
-pub const AUTH_TRUNC_LEN: usize = 16;
+/// RFC 7860 §4 `usmHMAC192SHA256AuthProtocol` — auth tag is HMAC-SHA-256
+/// truncated to 192 bits / 24 bytes. (Common mis-read: SHA-256 truncates to
+/// 128 like SHA-1 did under RFC 3414; it does NOT.)
+pub const AUTH_TRUNC_LEN: usize = 24;
 
 /// RFC 3414 §A.2 — hash 1MB of stretched password, then localize against
 /// the engine id with `H(key || engineID || key)`.

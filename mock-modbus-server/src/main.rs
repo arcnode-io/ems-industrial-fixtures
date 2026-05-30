@@ -14,7 +14,8 @@ mod simulator;
 use handler::MeterHandler;
 use rodbus::server::{
     AddressFilter, CertificateMode, MinTlsVersion, ReadOnlyAuthorizationHandler, RequestHandler,
-    ServerHandlerMap, TlsServerConfig, spawn_tcp_server_task, spawn_tls_server_task_with_authz,
+    ServerHandle, ServerHandlerMap, TlsServerConfig, spawn_tcp_server_task,
+    spawn_tls_server_task_with_authz,
 };
 use rodbus::{DecodeLevel, UnitId};
 use simulator::Simulator;
@@ -59,20 +60,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let map = ServerHandlerMap::single(UnitId::new(unit_id), handler.clone());
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 
-    if tls_mode {
+    // Hoist the server handle to outer scope. rodbus's
+    // spawn_tcp_server_task returns a ServerHandle that, when dropped,
+    // tears down the listener — so binding inside the else block (which
+    // we used to) caused the handle to drop at end-of-block, killing the
+    // listener microseconds after the "listening" log. ctrl_c then
+    // waited forever on a dead server. Container stayed "Up" but port
+    // 502 silently closed → gateway got connection-refused on every poll.
+    // Caught via platform-api e2e_defense pipeline 2563801174 stack
+    // smoke-defense-348a8f8d (compose-state.log diagnostic).
+    let _server_handle = if tls_mode {
         info!(%addr, unit_id, tick_ms, max_sessions, "mock-modbus-server (TLS) listening");
-        spawn_tls(addr, map, max_sessions).await?;
+        spawn_tls(addr, map, max_sessions).await?
     } else {
         info!(%addr, unit_id, tick_ms, max_sessions, "mock-modbus-server (plain) listening");
-        let _server = spawn_tcp_server_task(
+        spawn_tcp_server_task(
             max_sessions,
             addr,
             map,
             AddressFilter::Any,
             DecodeLevel::default(),
         )
-        .await?;
-    }
+        .await?
+    };
 
     spawn_simulator(handler, tick_ms);
     tokio::signal::ctrl_c().await?;
@@ -88,7 +98,7 @@ async fn spawn_tls<T: RequestHandler>(
     addr: SocketAddr,
     map: ServerHandlerMap<T>,
     max_sessions: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<ServerHandle, Box<dyn std::error::Error>> {
     let ca_bundle = require_env_path("MODBUS_TLS_CA")?;
     let cert = require_env_path("MODBUS_TLS_CERT")?;
     let key = require_env_path("MODBUS_TLS_KEY")?;
@@ -100,7 +110,10 @@ async fn spawn_tls<T: RequestHandler>(
         MinTlsVersion::V1_3,
         CertificateMode::AuthorityBased,
     )?;
-    let _server = spawn_tls_server_task_with_authz(
+    // Return the ServerHandle so caller can hold it until ctrl_c —
+    // dropping it tears down the TLS listener (same bug class as the
+    // plain branch). Caller's responsibility to keep the handle alive.
+    let server = spawn_tls_server_task_with_authz(
         max_sessions,
         addr,
         map,
@@ -110,7 +123,7 @@ async fn spawn_tls<T: RequestHandler>(
         DecodeLevel::default(),
     )
     .await?;
-    Ok(())
+    Ok(server)
 }
 
 /// Resolve a required env var into a PathBuf, erroring with the var name.

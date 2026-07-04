@@ -1,7 +1,13 @@
 //! Canned OID map for the `pdu` template (Server Tech PRO3X intelligent PDU).
 //!
 //! Mirrors the OIDs the template binds (Server Tech enterprise 1718).
-//! For Tier 1, only `input_current` is exposed; sawtooth 100 → 200 (deci-amps).
+//! For Tier 1, only `input_current` is exposed; sawtooth 100 → 200.
+//!
+//! Value semantics: the gateway casts SNMP integers to f64 1:1 (identity
+//! scale — snmp bindings carry no scale metadata), so whatever integer
+//! lives here IS the published engineering value. These magnitudes are
+//! demo-scale, not PDU-realistic; gateway e2e pins the 100–200 band, so
+//! change both together if realism ever matters.
 
 use std::collections::HashMap;
 

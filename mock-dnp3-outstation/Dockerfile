@@ -14,5 +14,5 @@ RUN cargo build --release -p mock-dnp3-outstation
 
 FROM debian:bookworm-slim
 COPY --from=builder /build/target/release/mock-dnp3-outstation /usr/local/bin/mock-dnp3-outstation
-EXPOSE 20000
+EXPOSE 20000 8080
 ENTRYPOINT ["/usr/local/bin/mock-dnp3-outstation"]

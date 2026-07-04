@@ -968,8 +968,11 @@ dependencies = [
 name = "mock-dnp3-outstation"
 version = "1.0.0-beta"
 dependencies = [
+ "axum",
  "dnp3",
+ "serde",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

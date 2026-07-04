@@ -2,11 +2,14 @@
 //!
 //! `protective_relay` template binds `phase_a_current` to analog_input
 //! point_index=0. Sawtooth 100 → 200 amps (deci-amps).
+//! Points under external control (HTTP control surface) are skipped so
+//! driven values survive across ticks.
 
 use dnp3::app::Timestamp;
 use dnp3::app::measurement::{AnalogInput, Flags, Time};
 use dnp3::outstation::OutstationHandle;
 use dnp3::outstation::database::{Update, UpdateOptions};
+use std::collections::HashSet;
 use std::time::SystemTime;
 
 /// Sawtooth strategy for a single analog input point.
@@ -43,16 +46,27 @@ impl Simulator {
         }
     }
 
-    /// Advance every analog input by one step, write back into the outstation
-    /// database via a transaction.
-    pub fn tick(&mut self, outstation: &OutstationHandle) {
+    /// Advance every non-driven channel by one step, returning the
+    /// (index, value) updates to apply. Pure — testable without an
+    /// outstation.
+    fn advance(&mut self, driven: &HashSet<u16>) -> Vec<(u16, f64)> {
+        let mut updates = Vec::new();
         for sim in &mut self.analogs {
+            if driven.contains(&sim.index) {
+                continue;
+            }
             sim.cur += sim.step;
             if sim.cur > sim.max {
                 sim.cur = sim.min;
             }
-            let value = sim.cur;
-            let index = sim.index;
+            updates.push((sim.index, sim.cur));
+        }
+        updates
+    }
+
+    /// Advance and write back into the outstation database via a transaction.
+    pub fn tick(&mut self, outstation: &OutstationHandle, driven: &HashSet<u16>) {
+        for (index, value) in self.advance(driven) {
             outstation.transaction(|db| {
                 db.update(
                     index,
@@ -76,4 +90,35 @@ fn current_time() -> Time {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock before unix epoch");
     Time::Synchronized(Timestamp::new(epoch.as_millis() as u64))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advance_moves_undriven_sawtooth() {
+        // Arrange
+        let mut sim = Simulator::new();
+
+        // Act
+        let updates = sim.advance(&HashSet::new());
+
+        // Assert — 100 + 5
+        assert_eq!(updates, vec![(0, 105.0)]);
+    }
+
+    #[test]
+    fn advance_skips_control_driven_points() {
+        // Arrange
+        let mut sim = Simulator::new();
+        let driven = HashSet::from([0]);
+
+        // Act
+        let updates = sim.advance(&driven);
+
+        // Assert — nothing to write, internal state untouched
+        assert_eq!(updates, vec![]);
+        assert_eq!(sim.advance(&HashSet::new()), vec![(0, 105.0)]);
+    }
 }

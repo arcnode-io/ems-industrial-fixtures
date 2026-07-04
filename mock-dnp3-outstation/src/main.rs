@@ -7,6 +7,9 @@
 //!   Default port: 19999 (per IEEE 1815 Annex E).
 //! - else → plain DNP3/TCP. Default port: 20000.
 
+mod control;
+#[cfg(test)]
+mod control_roundtrip_test;
 mod simulator;
 
 use dnp3::app::control::{
@@ -25,7 +28,9 @@ use dnp3::outstation::{
 use dnp3::tcp::tls::{MinTlsVersion, TlsServerConfig};
 use dnp3::tcp::{AddressFilter, Server};
 use simulator::Simulator;
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 
@@ -33,6 +38,8 @@ use tracing::info;
 const DNP3_TLS_PORT: u16 = 19999;
 /// De facto DNP3/TCP port (IANA-reserved).
 const DNP3_TCP_PORT: u16 = 20000;
+/// Default port for the out-of-band HTTP control surface (digital-twin).
+const CONTROL_PORT: u16 = 8080;
 
 /// Minimal OutstationApplication — defaults are fine for read-only use.
 struct App;
@@ -106,6 +113,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
+    let control_port: u16 = std::env::var("CONTROL_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(CONTROL_PORT);
 
     let addr = format!("0.0.0.0:{port}").parse()?;
     let mut server = if tls_mode {
@@ -141,12 +152,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mode = if tls_mode { "TLS" } else { "plain" };
     info!(%port, tick_ms, mode, "mock-dnp3-outstation listening");
 
-    // Simulator tick.
+    let driven: control::DrivenSet = Arc::new(Mutex::new(HashSet::new()));
+    control::spawn_control(
+        control::ControlState {
+            outstation: outstation.clone(),
+            driven: driven.clone(),
+        },
+        control_port,
+    )
+    .await?;
+
+    // Simulator tick — skips control-driven points.
     let mut sim = Simulator::new();
     let outstation_for_sim = outstation.clone();
     tokio::spawn(async move {
         loop {
-            sim.tick(&outstation_for_sim);
+            {
+                let owned = driven.lock().expect("driven lock poisoned");
+                sim.tick(&outstation_for_sim, &owned);
+            }
             tokio::time::sleep(Duration::from_millis(tick_ms)).await;
         }
     });

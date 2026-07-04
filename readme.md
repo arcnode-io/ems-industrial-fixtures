@@ -38,23 +38,23 @@ industrial_gateway --> mock_canbus_node: CANbus
 | DNP3 | 20000 | Mock dnp3 outstation |
 | CANbus | - | Mock canbus node |
 
-### Control surface (digital-twin)
+### Control surfaces (digital-twin)
 
-`mock-modbus-server` exposes an out-of-band HTTP control endpoint
-(`CONTROL_PORT`, default 8080) so the `digital-twin` service can drive
-register values with coherent plant physics instead of the built-in
-sawtooth:
+Three mocks expose an out-of-band HTTP control endpoint (`CONTROL_PORT`,
+default 8080) so the `digital-twin` service can drive protocol values
+with coherent plant physics instead of the built-in sawtooths:
 
-```bash
-curl -X PUT localhost:8080/registers \
-  -H 'content-type: application/json' \
-  -d '{"registers": {"4000": 15, "4001": 16960}}'
-```
+| Mock | Endpoint | Body |
+|---|---|---|
+| mock-modbus-server | `PUT /registers` | `{"registers": {"4000": 15, "4001": 16960}}` — raw 16-bit words |
+| mock-dnp3-outstation | `PUT /points` | `{"analog_inputs": {"0": 5000000.0}}` — engineering f64, unseeded indices added on demand |
+| mock-snmp-agent | `PUT /oids` | `{"values": {"1.3.6.1.4.1.1718.4.1.3.3.1.7": 32}}` — raw i64 |
 
-Batch writes apply atomically under one lock (int32 word pairs can't tear
-mid-poll). Driven addresses are excluded from the sawtooth simulator from
-then on; untouched channels keep drifting. The Modbus surface itself stays
-read-only (TLS mode's authz denies protocol writes by design). Sim fixture
+Batch writes apply atomically under one lock (multi-word values can't
+tear mid-poll; a malformed OID rejects its whole batch). Driven
+addresses/points/OIDs are excluded from the sawtooth simulators from
+then on; untouched channels keep drifting. The protocol surfaces stay
+read-only (TLS authz denies protocol writes by design). Sim fixtures
 only — never expose the control port beyond the deployment network.
 
 ## Docker

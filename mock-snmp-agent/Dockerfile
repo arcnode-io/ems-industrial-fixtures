@@ -14,5 +14,5 @@ RUN cargo build --release -p mock-snmp-agent
 
 FROM debian:bookworm-slim
 COPY --from=builder /build/target/release/mock-snmp-agent /usr/local/bin/mock-snmp-agent
-EXPOSE 161/udp
+EXPOSE 161/udp 8080
 ENTRYPOINT ["/usr/local/bin/mock-snmp-agent"]

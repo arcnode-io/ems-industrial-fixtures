@@ -1009,14 +1009,17 @@ name = "mock-snmp-agent"
 version = "1.0.0-beta"
 dependencies = [
  "aes",
+ "axum",
  "cfb-mode",
  "hmac",
  "rand",
  "rasn",
  "rasn-smi",
  "rasn-snmp",
+ "serde",
  "sha2",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

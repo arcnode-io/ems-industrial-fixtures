@@ -1,6 +1,7 @@
 //! mock-snmp-agent — SNMP v2c UDP server fixture for gateway testing.
 //! Serves GetRequest PDUs from a simulated OID value map.
 
+mod control;
 mod oids;
 mod simulator;
 mod usm;
@@ -31,11 +32,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
+    let control_port: u16 = std::env::var("CONTROL_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8080);
 
     let socket = Arc::new(UdpSocket::bind(format!("0.0.0.0:{port}")).await?);
     info!(%port, tick_ms, "mock-snmp-agent listening");
 
     let values = Arc::new(Mutex::new(oids::initial_values()));
+    let driven: control::DrivenSet = Arc::new(Mutex::new(std::collections::HashSet::new()));
+    control::spawn_control(
+        control::ControlState {
+            values: values.clone(),
+            driven: driven.clone(),
+        },
+        control_port,
+    )
+    .await?;
 
     // Optional SNMPv3 USM — enabled when SNMP_V3_AUTH_PASS is set.
     // SNMP_V3_USER defaults to "gateway"; matches the gateway's default
@@ -56,14 +70,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(Mutex::new(s))
     });
 
-    // Simulator tick task.
+    // Simulator tick task — skips control-driven OIDs.
     let sim_values = values.clone();
+    let sim_driven = driven.clone();
     tokio::spawn(async move {
         let sim = Simulator::new();
         loop {
             {
+                let owned = sim_driven.lock().await;
                 let mut v = sim_values.lock().await;
-                sim.tick(&mut v);
+                sim.tick(&mut v, &owned);
             }
             tokio::time::sleep(Duration::from_millis(tick_ms)).await;
         }

@@ -7,6 +7,7 @@
 //!   Default port: 802 (per Modbus Security spec).
 //! - else → plain Modbus/TCP. Default port: 502.
 
+mod control;
 mod handler;
 mod registers;
 mod simulator;
@@ -29,13 +30,19 @@ use tracing::info;
 const MODBUS_TLS_PORT: u16 = 802;
 /// Standards-defined plain Modbus/TCP port.
 const MODBUS_TCP_PORT: u16 = 502;
+/// Default port for the out-of-band HTTP control surface (digital-twin).
+const CONTROL_PORT: u16 = 8080;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_target(false).init();
 
     let tls_mode = std::env::var("MODBUS_TLS").ok().as_deref() == Some("1");
-    let default_port = if tls_mode { MODBUS_TLS_PORT } else { MODBUS_TCP_PORT };
+    let default_port = if tls_mode {
+        MODBUS_TLS_PORT
+    } else {
+        MODBUS_TCP_PORT
+    };
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -55,6 +62,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(64);
+    let control_port: u16 = std::env::var("CONTROL_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(CONTROL_PORT);
 
     let handler = MeterHandler::new(registers::holding_registers()).wrap();
     let map = ServerHandlerMap::single(UnitId::new(unit_id), handler.clone());
@@ -84,6 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
     };
 
+    control::spawn_control(handler.clone(), control_port).await?;
     spawn_simulator(handler, tick_ms);
     tokio::signal::ctrl_c().await?;
     Ok(())
@@ -139,8 +151,11 @@ fn spawn_simulator(handler: Arc<Mutex<Box<MeterHandler>>>, tick_ms: u64) {
         let sim = Simulator::new();
         loop {
             {
-                let mut h = handler.lock().unwrap();
-                sim.tick(&mut h.holding);
+                let mut guard = handler.lock().unwrap();
+                // Reason: split borrow — holding mutably, driven immutably,
+                // both fields of the same MeterHandler behind the guard.
+                let h = &mut **guard;
+                sim.tick(&mut h.holding, &h.driven);
             }
             tokio::time::sleep(Duration::from_millis(tick_ms)).await;
         }

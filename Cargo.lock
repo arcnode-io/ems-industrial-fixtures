@@ -978,8 +978,11 @@ dependencies = [
 name = "mock-modbus-server"
 version = "1.0.0-beta"
 dependencies = [
+ "axum",
  "rodbus",
+ "serde",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

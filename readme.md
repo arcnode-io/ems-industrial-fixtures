@@ -38,6 +38,25 @@ industrial_gateway --> mock_canbus_node: CANbus
 | DNP3 | 20000 | Mock dnp3 outstation |
 | CANbus | - | Mock canbus node |
 
+### Control surface (digital-twin)
+
+`mock-modbus-server` exposes an out-of-band HTTP control endpoint
+(`CONTROL_PORT`, default 8080) so the `digital-twin` service can drive
+register values with coherent plant physics instead of the built-in
+sawtooth:
+
+```bash
+curl -X PUT localhost:8080/registers \
+  -H 'content-type: application/json' \
+  -d '{"registers": {"4000": 15, "4001": 16960}}'
+```
+
+Batch writes apply atomically under one lock (int32 word pairs can't tear
+mid-poll). Driven addresses are excluded from the sawtooth simulator from
+then on; untouched channels keep drifting. The Modbus surface itself stays
+read-only (TLS mode's authz denies protocol writes by design). Sim fixture
+only — never expose the control port beyond the deployment network.
+
 ## Docker
 
 Each fixture runs in its own container for isolated testing:

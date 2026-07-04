@@ -17,5 +17,5 @@ RUN cargo build --release -p mock-modbus-server
 
 FROM debian:bookworm-slim
 COPY --from=builder /build/target/release/mock-modbus-server /usr/local/bin/mock-modbus-server
-EXPOSE 502
+EXPOSE 502 8080
 ENTRYPOINT ["/usr/local/bin/mock-modbus-server"]

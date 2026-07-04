@@ -195,11 +195,7 @@ struct UsmUserSnapshot {
 /// can't go via decode→re-encode because BER doesn't guarantee canonical
 /// bytes (the client's encoder may make different size/form choices than
 /// ours).
-fn verify_hmac(
-    raw: &[u8],
-    usm_params: &USMSecurityParameters,
-    auth_key: &[u8],
-) -> bool {
+fn verify_hmac(raw: &[u8], usm_params: &USMSecurityParameters, auth_key: &[u8]) -> bool {
     let auth_params = usm_params.authentication_parameters.as_ref();
     if auth_params.len() != usm::AUTH_TRUNC_LEN {
         return false;

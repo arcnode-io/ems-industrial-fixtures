@@ -93,7 +93,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_target(false).init();
 
     let tls_mode = std::env::var("DNP3_TLS").ok().as_deref() == Some("1");
-    let default_port = if tls_mode { DNP3_TLS_PORT } else { DNP3_TCP_PORT };
+    let default_port = if tls_mode {
+        DNP3_TLS_PORT
+    } else {
+        DNP3_TCP_PORT
+    };
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -158,14 +162,7 @@ fn build_tls_server_config() -> Result<TlsServerConfig, Box<dyn std::error::Erro
     let ca = require_env_path("DNP3_TLS_CA")?;
     let cert = require_env_path("DNP3_TLS_CERT")?;
     let key = require_env_path("DNP3_TLS_KEY")?;
-    let tls_config = TlsServerConfig::full_pki(
-        None,
-        &ca,
-        &cert,
-        &key,
-        None,
-        MinTlsVersion::V13,
-    )?;
+    let tls_config = TlsServerConfig::full_pki(None, &ca, &cert, &key, None, MinTlsVersion::V13)?;
     Ok(tls_config)
 }
 

@@ -1,7 +1,7 @@
 //! RequestHandler impl backed by a register map mutated by `Simulator`.
 
 use rodbus::ExceptionCode;
-use rodbus::server::RequestHandler;
+use rodbus::server::{RequestHandler, WriteRegisters};
 use std::collections::{HashMap, HashSet};
 
 /// Handles read_holding_register against the live register map.
@@ -15,14 +15,20 @@ pub struct MeterHandler {
     /// The simulator skips channels touching these so a driven value
     /// survives past the next tick.
     pub driven: HashSet<u16>,
+    /// Whether Modbus protocol writes (function code 16) are accepted.
+    /// False by default — real Modbus sessions are read-only unless a
+    /// fixture explicitly opts a device in as writable.
+    pub writable: bool,
 }
 
 impl MeterHandler {
-    /// Build a handler with the initial register map.
+    /// Build a handler with the initial register map. Protocol writes are
+    /// rejected until `writable` is set via `MeterHandler { writable: true, .. }`.
     pub fn new(holding: HashMap<u16, u16>) -> Self {
         Self {
             holding,
             driven: HashSet::new(),
+            writable: false,
         }
     }
 
@@ -42,6 +48,20 @@ impl RequestHandler for MeterHandler {
             .get(&address)
             .copied()
             .ok_or(ExceptionCode::IllegalDataAddress)
+    }
+
+    /// Function code 16. Rejected with `IllegalFunction` unless `writable`
+    /// is set — same exception a real read-only Modbus session returns.
+    /// Written addresses become control-driven, same as the HTTP surface.
+    fn write_multiple_registers(&mut self, values: WriteRegisters) -> Result<(), ExceptionCode> {
+        if !self.writable {
+            return Err(ExceptionCode::IllegalFunction);
+        }
+        for reg in values.iterator {
+            self.holding.insert(reg.index, reg.value);
+            self.driven.insert(reg.index);
+        }
+        Ok(())
     }
 }
 

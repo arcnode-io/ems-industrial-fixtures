@@ -6,6 +6,10 @@
 //!   Requires `MODBUS_TLS_CA`, `MODBUS_TLS_CERT`, `MODBUS_TLS_KEY` paths.
 //!   Default port: 802 (per Modbus Security spec).
 //! - else → plain Modbus/TCP. Default port: 502.
+//! - `MODBUS_WRITABLE=1` → accepts function-code-16 writes (independent of
+//!   the TLS toggle above). Default: read-only, writes rejected with
+//!   `IllegalFunction` — real devices are a mix of read-only meters and
+//!   writable setpoints, so this is opt-in per fixture instance.
 
 mod control;
 mod handler;
@@ -66,8 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(CONTROL_PORT);
+    let writable = std::env::var("MODBUS_WRITABLE").ok().as_deref() == Some("1");
 
-    let handler = MeterHandler::new(registers::holding_registers()).wrap();
+    let mut meter = MeterHandler::new(registers::holding_registers());
+    meter.writable = writable;
+    let handler = meter.wrap();
     let map = ServerHandlerMap::single(UnitId::new(unit_id), handler.clone());
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 
@@ -81,10 +88,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Caught via platform-api e2e_defense pipeline 2563801174 stack
     // smoke-defense-348a8f8d (compose-state.log diagnostic).
     let _server_handle = if tls_mode {
-        info!(%addr, unit_id, tick_ms, max_sessions, "mock-modbus-server (TLS) listening");
+        info!(%addr, unit_id, tick_ms, max_sessions, writable, "mock-modbus-server (TLS) listening");
         spawn_tls(addr, map, max_sessions).await?
     } else {
-        info!(%addr, unit_id, tick_ms, max_sessions, "mock-modbus-server (plain) listening");
+        info!(%addr, unit_id, tick_ms, max_sessions, writable, "mock-modbus-server (plain) listening");
         spawn_tcp_server_task(
             max_sessions,
             addr,

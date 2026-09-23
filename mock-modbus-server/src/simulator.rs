@@ -30,7 +30,7 @@ pub struct Simulator {
 }
 
 impl Simulator {
-    /// Build the simulator with the canonical revenue_meter channels.
+    /// Build the simulator with the canonical poi_meter channels.
     pub fn new() -> Self {
         Self {
             int32_saws: vec![Int32SawtoothSim {

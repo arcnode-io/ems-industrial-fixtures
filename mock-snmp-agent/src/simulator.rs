@@ -24,7 +24,7 @@ pub struct Simulator {
 }
 
 impl Simulator {
-    /// Build with the canonical revenue_meter OIDs.
+    /// Build with the canonical poi_meter OIDs.
     pub fn new() -> Self {
         Self {
             saws: vec![IntSawtooth {

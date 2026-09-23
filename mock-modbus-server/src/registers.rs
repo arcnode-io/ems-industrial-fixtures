@@ -1,4 +1,4 @@
-//! Canned holding-register map for the revenue_meter template.
+//! Canned holding-register map for the poi_meter template.
 //!
 //! kwh_delivered: int32 at addr 4000-4001, word_order high_low, scale 1.0.
 //! Value chosen so a successful e2e read yields exactly 1_000_000 Wh.

@@ -10,7 +10,12 @@
 //!   the TLS toggle above). Default: read-only, writes rejected with
 //!   `IllegalFunction` — real devices are a mix of read-only meters and
 //!   writable setpoints, so this is opt-in per fixture instance.
+//! - `MODBUS_PROFILE` → which device the registers model. `poi_meter`
+//!   (default) or `bess_rack`, a simulated battery rack that follows its
+//!   commanded setpoint and drains/fills SoC. `bess_rack` is always writable.
+//!   See `battery::from_env` for its own settings.
 
+mod battery;
 mod control;
 mod handler;
 mod registers;
@@ -70,9 +75,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(CONTROL_PORT);
-    let writable = std::env::var("MODBUS_WRITABLE").ok().as_deref() == Some("1");
+    let profile = std::env::var("MODBUS_PROFILE").unwrap_or_else(|_| "poi_meter".into());
+    let (holding, battery) = match profile.as_str() {
+        "poi_meter" => (registers::holding_registers(), None),
+        "bess_rack" => {
+            let (battery, holding) = battery::from_env()?;
+            (holding, Some(battery))
+        }
+        other => return Err(format!("unknown MODBUS_PROFILE: {other}").into()),
+    };
+    let writable =
+        battery.is_some() || std::env::var("MODBUS_WRITABLE").ok().as_deref() == Some("1");
 
-    let mut meter = MeterHandler::new(registers::holding_registers());
+    let mut meter = MeterHandler::new(holding);
     meter.writable = writable;
     let handler = meter.wrap();
     let map = ServerHandlerMap::single(UnitId::new(unit_id), handler.clone());
@@ -91,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!(%addr, unit_id, tick_ms, max_sessions, writable, "mock-modbus-server (TLS) listening");
         spawn_tls(addr, map, max_sessions).await?
     } else {
-        info!(%addr, unit_id, tick_ms, max_sessions, writable, "mock-modbus-server (plain) listening");
+        info!(%addr, unit_id, tick_ms, max_sessions, writable, %profile, "mock-modbus-server (plain) listening");
         spawn_tcp_server_task(
             max_sessions,
             addr,
@@ -103,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     control::spawn_control(handler.clone(), control_port).await?;
-    spawn_simulator(handler, tick_ms);
+    spawn_simulator(handler, tick_ms, battery);
     tokio::signal::ctrl_c().await?;
     Ok(())
 }
@@ -152,17 +167,26 @@ fn require_env_path(var: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 
 /// Run the simulator tick in the background — drifts holding-register values
-/// so a polling gateway sees data move.
-fn spawn_simulator(handler: Arc<Mutex<Box<MeterHandler>>>, tick_ms: u64) {
+/// so a polling gateway sees data move. A `bess_rack` profile steps its
+/// battery model instead of the poi_meter sawtooth.
+fn spawn_simulator(
+    handler: Arc<Mutex<Box<MeterHandler>>>,
+    tick_ms: u64,
+    mut battery: Option<battery::Battery>,
+) {
     tokio::spawn(async move {
         let sim = Simulator::new();
+        let dt = Duration::from_millis(tick_ms);
         loop {
             {
                 let mut guard = handler.lock().unwrap();
                 // Reason: split borrow — holding mutably, driven immutably,
                 // both fields of the same MeterHandler behind the guard.
                 let h = &mut **guard;
-                sim.tick(&mut h.holding, &h.driven);
+                match battery.as_mut() {
+                    Some(b) => b.step(&mut h.holding, &h.driven, dt),
+                    None => sim.tick(&mut h.holding, &h.driven),
+                }
             }
             tokio::time::sleep(Duration::from_millis(tick_ms)).await;
         }

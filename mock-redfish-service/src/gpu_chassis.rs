@@ -4,10 +4,14 @@
 //! Readings are flat constants on purpose: a GPU training run holds near-flat
 //! at high utilization, which is the demo's point (compute keeps running
 //! through a curtailment while the BESS absorbs it). Tune via env, no rebuild:
-//! `GPU_NODE_POWER_W` (default 12000), `GPU_NODE_POWER_LIMIT_W` (14300),
+//! `GPU_NODE_POWER_W` (default 10500), `GPU_NODE_POWER_LIMIT_W` (26400),
 //! `GPU_TOTAL_POWER_W` (8000), `GPU_NODE_INLET_C` (25), `GPU_NODE_EXHAUST_C`
-//! (40), `GPU_NODE_FAN_PERCENT` (45). Defaults model an 8× B200 HGX node near
-//! full load.
+//! (40), `GPU_NODE_FAN_PERCENT` (45).
+//!
+//! Power defaults are edp-module-assemblies CMP-NODE-001 (8× B200 HGX):
+//! 10.5 kW typical sustained at full GPU load; 8× 1000 W GPU TDP; the limit
+//! is the 4× 6600 W PSU nameplate, i.e. an uncapped BMC. Temperatures and fan
+//! duty are illustrative only; the spec gives no figures for them.
 
 use axum::{Json, Router, routing::get};
 use serde_json::{Value, json};
@@ -33,8 +37,8 @@ impl GpuChassis {
     /// Read readings from env, falling back to the defaults above.
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
-            power_consumed_w: env_f64("GPU_NODE_POWER_W", 12_000.0)?,
-            power_limit_w: env_f64("GPU_NODE_POWER_LIMIT_W", 14_300.0)?,
+            power_consumed_w: env_f64("GPU_NODE_POWER_W", 10_500.0)?,
+            power_limit_w: env_f64("GPU_NODE_POWER_LIMIT_W", 26_400.0)?,
             gpu_power_w: env_f64("GPU_TOTAL_POWER_W", 8_000.0)?,
             inlet_c: env_f64("GPU_NODE_INLET_C", 25.0)?,
             exhaust_c: env_f64("GPU_NODE_EXHAUST_C", 40.0)?,

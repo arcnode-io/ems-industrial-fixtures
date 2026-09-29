@@ -1,5 +1,7 @@
 //! mock-redfish-service — Redfish HTTP / HTTPS+mTLS server fixture.
-//! Serves `/redfish/v1/Chassis/SW1/Thermal` backed by a ticking simulator.
+//! Serves `/redfish/v1/Chassis/SW1/Thermal` (network_switch) backed by a
+//! ticking simulator, and `/redfish/v1/Chassis/1/{Power,Thermal,Processors}`
+//! (gpu_node) as flat readings — see `gpu_chassis`.
 //!
 //! Modes selected by env:
 //! - `REDFISH_TLS=1` → HTTPS + CA-validated mTLS (DSP0266 §13.1 + §13.3.5).
@@ -7,6 +9,7 @@
 //!   Default port: 8443.
 //! - else → plain HTTP. Default port: 8443 (already HTTP-on-:8443 convention).
 
+mod gpu_chassis;
 mod simulator;
 
 use axum::Router;
@@ -60,7 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/redfish/v1/Chassis/SW1/Thermal", get(thermal_handler))
-        .with_state(state);
+        .with_state(state)
+        .merge(gpu_chassis::router(gpu_chassis::GpuChassis::from_env()?));
 
     let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
     let mode = if tls_mode { "HTTPS+mTLS" } else { "HTTP" };

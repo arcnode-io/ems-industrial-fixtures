@@ -18,6 +18,7 @@
 mod battery;
 mod control;
 mod handler;
+mod poi;
 mod registers;
 mod simulator;
 
@@ -118,6 +119,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     control::spawn_control(handler.clone(), control_port).await?;
+    if battery.is_none() {
+        poi::spawn_from_env(handler.clone(), Duration::from_millis(tick_ms))?;
+    }
     spawn_simulator(handler, tick_ms, battery);
     tokio::signal::ctrl_c().await?;
     Ok(())

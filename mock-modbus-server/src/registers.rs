@@ -10,9 +10,15 @@
 //! | thd_voltage_a  | 4020      | int16         | 0.01  | 210      | 2.10 %     |
 //! | thd_voltage_b  | 4021      | int16         | 0.01  | 235      | 2.35 %     |
 //! | thd_voltage_c  | 4022      | int16         | 0.01  | 195      | 1.95 %     |
+//! | active_power   | 4030-4031 | int32 hi_lo   | 1.0   | live     | + import W |
 //!
 //! kwh_delivered's exact value is what the gateway e2e asserts on. THD phases
 //! differ on purpose so a phase-to-address mixup shows up as a wrong number.
+//! active_power starts at 0 and is kept live by `poi` (site load minus rack
+//! discharge).
+//!
+//! None of these addresses has been checked against Schneider's real ION9000
+//! register map (7EN02-0390); a real site must re-verify every one.
 
 use std::collections::HashMap;
 
@@ -27,6 +33,8 @@ pub fn holding_registers() -> HashMap<u16, u16> {
         (4020, 210),
         (4021, 235),
         (4022, 195),
+        (4030, 0),
+        (4031, 0),
     ])
 }
 
@@ -54,6 +62,7 @@ mod tests {
         let thd_a = f64::from(int16(&m, 4020)) * 0.01;
         let thd_b = f64::from(int16(&m, 4021)) * 0.01;
         let thd_c = f64::from(int16(&m, 4022)) * 0.01;
+        let active_power = f64::from(int32_high_low(&m, 4030));
 
         // Assert
         assert_eq!(kwh_delivered, 1_000_000.0);
@@ -62,5 +71,6 @@ mod tests {
         assert!((thd_a - 2.10).abs() < 1e-9);
         assert!((thd_b - 2.35).abs() < 1e-9);
         assert!((thd_c - 1.95).abs() < 1e-9);
+        assert_eq!(active_power, 0.0);
     }
 }

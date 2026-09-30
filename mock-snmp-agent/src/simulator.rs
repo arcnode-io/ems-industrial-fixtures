@@ -24,13 +24,13 @@ pub struct Simulator {
 }
 
 impl Simulator {
-    /// Build with the canonical poi_meter OIDs.
+    /// Build with the pdu's drifting OID: L1 current, 15.00 → 16.00 A.
     pub fn new() -> Self {
         Self {
             saws: vec![IntSawtooth {
                 oid: OID_INPUT_CURRENT.to_vec(),
-                min: 100,
-                max: 200,
+                min: 1500,
+                max: 1600,
                 step: 5,
             }],
         }
@@ -66,14 +66,14 @@ mod tests {
     #[test]
     fn tick_advances_undriven_oid() {
         // Arrange
-        let mut values = HashMap::from([(OID_INPUT_CURRENT.to_vec(), 100)]);
+        let mut values = HashMap::from([(OID_INPUT_CURRENT.to_vec(), 1500)]);
         let sim = Simulator::new();
 
         // Act
         sim.tick(&mut values, &HashSet::new());
 
         // Assert
-        assert_eq!(values.get(OID_INPUT_CURRENT), Some(&105));
+        assert_eq!(values.get(OID_INPUT_CURRENT), Some(&1505));
     }
 
     #[test]

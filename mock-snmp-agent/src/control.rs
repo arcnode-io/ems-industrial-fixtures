@@ -2,9 +2,9 @@
 //! OID values at runtime.
 //!
 //! One batch endpoint, `PUT /oids`, applied under a single lock. OIDs are
-//! dotted strings on the wire (`"1.3.6.1.4.1.1718.4.1.3.3.1.7"`), values
-//! are the raw i64 the agent serves (gateway casts SNMP integers to f64
-//! 1:1 — identity scale). Driven OIDs are skipped by the sawtooth
+//! dotted strings on the wire (`"1.3.6.1.4.1.1718.4.1.4.3.1.3.1.1.1"`), values
+//! are the raw i64 the agent serves (the gateway applies the binding's
+//! scale). Driven OIDs are skipped by the sawtooth
 //! simulator. Sim-fixture only — never expose beyond the deployment
 //! network.
 
@@ -33,7 +33,7 @@ pub struct ControlState {
     pub driven: DrivenSet,
 }
 
-/// Batch OID write: `{ "values": { "1.3.6.1.4.1.1718.4.1.3.3.1.7": 32 } }`.
+/// Batch OID write: `{ "values": { "1.3.6.1.4.1.1718.4.1.4.3.1.3.1.1.1": 32 } }`.
 #[derive(Deserialize)]
 pub struct SetOids {
     /// Dotted OID string -> raw integer value.
@@ -118,7 +118,7 @@ mod tests {
             .uri("/oids")
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
-                r#"{"values":{"1.3.6.1.4.1.1718.4.1.3.3.1.7":32}}"#,
+                r#"{"values":{"1.3.6.1.4.1.1718.4.1.4.3.1.3.1.1.1":32}}"#,
             ))
             .unwrap();
 
@@ -141,7 +141,7 @@ mod tests {
             .uri("/oids")
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
-                r#"{"values":{"1.3.6.1.4.1.1718.4.1.3.3.1.7":32,"not.an.oid":1}}"#,
+                r#"{"values":{"1.3.6.1.4.1.1718.4.1.4.3.1.3.1.1.1":32,"not.an.oid":1}}"#,
             ))
             .unwrap();
 

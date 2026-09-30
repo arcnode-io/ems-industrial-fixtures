@@ -13,14 +13,16 @@
 //! - `MODBUS_PROFILE` → which device the registers model. `poi_meter`
 //!   (default); `bess_rack`, a simulated battery rack that follows its
 //!   commanded setpoint and drains/fills SoC (see `battery::from_env`); or
-//!   `dc_external`, a static dry cooler (see `dc_external`). Every profile
-//!   but `poi_meter` is always writable.
+//!   `dc_external`, a static dry cooler (see `dc_external`); or
+//!   `pv_inverter`, a static SunSpec model 103 inverter (see `pv_inverter`).
+//!   `bess_rack` and `dc_external` are always writable.
 
 mod battery;
 mod control;
 mod dc_external;
 mod handler;
 mod poi;
+mod pv_inverter;
 mod registers;
 mod simulator;
 mod tls;
@@ -87,11 +89,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             dc_external::input_registers(),
             None,
         ),
+        "pv_inverter" => (pv_inverter::holding_registers(), HashMap::new(), None),
         other => return Err(format!("unknown MODBUS_PROFILE: {other}").into()),
     };
-    // Only the poi_meter is a read-only device; the others take commands.
+    // Devices whose templates carry commands take writes; meters and the
+    // inverter are read-only unless MODBUS_WRITABLE opts them in.
     let poi_meter = profile == "poi_meter";
-    let writable = !poi_meter || std::env::var("MODBUS_WRITABLE").ok().as_deref() == Some("1");
+    let writable = matches!(profile.as_str(), "bess_rack" | "dc_external")
+        || std::env::var("MODBUS_WRITABLE").ok().as_deref() == Some("1");
 
     let mut meter = MeterHandler::new(holding);
     meter.input = input;

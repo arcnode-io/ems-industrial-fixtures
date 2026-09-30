@@ -34,8 +34,10 @@ impl Simulator {
     pub fn new() -> Self {
         Self {
             int32_saws: vec![Int32SawtoothSim {
-                addr_high: 4000,
-                addr_low: 4001,
+                // Reason: kwh_delivered is an int64 at 3204-3207; the band
+                // stays under 2^32, so the sawtooth only moves the low words.
+                addr_high: 3206,
+                addr_low: 3207,
                 min: 1_000_000,
                 max: 1_010_000,
                 step: 100,
@@ -76,30 +78,30 @@ mod tests {
 
     #[test]
     fn tick_advances_undriven_sawtooth() {
-        // Arrange — value 1_000_000 = 0x000F4240
-        let mut holding = HashMap::from([(4000, 0x000F), (4001, 0x4240)]);
+        // Arrange — kwh_delivered's low words, 1_000_000 = 0x000F4240
+        let mut holding = HashMap::from([(3206, 0x000F), (3207, 0x4240)]);
         let sim = Simulator::new();
 
         // Act
         sim.tick(&mut holding, &HashSet::new());
 
         // Assert — advanced by step 100 -> 1_000_100 = 0x000F42A4
-        assert_eq!(holding.get(&4000), Some(&0x000F));
-        assert_eq!(holding.get(&4001), Some(&0x42A4));
+        assert_eq!(holding.get(&3206), Some(&0x000F));
+        assert_eq!(holding.get(&3207), Some(&0x42A4));
     }
 
     #[test]
     fn tick_skips_control_driven_channels() {
-        // Arrange — 4000/4001 externally driven to an arbitrary value
-        let mut holding = HashMap::from([(4000, 0x1234), (4001, 0x5678)]);
-        let driven = HashSet::from([4000]);
+        // Arrange — 3206/3207 externally driven to an arbitrary value
+        let mut holding = HashMap::from([(3206, 0x1234), (3207, 0x5678)]);
+        let driven = HashSet::from([3206]);
         let sim = Simulator::new();
 
         // Act
         sim.tick(&mut holding, &driven);
 
         // Assert — untouched
-        assert_eq!(holding.get(&4000), Some(&0x1234));
-        assert_eq!(holding.get(&4001), Some(&0x5678));
+        assert_eq!(holding.get(&3206), Some(&0x1234));
+        assert_eq!(holding.get(&3207), Some(&0x5678));
     }
 }

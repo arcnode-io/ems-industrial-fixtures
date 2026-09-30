@@ -46,7 +46,7 @@ with coherent plant physics instead of the built-in sawtooths:
 
 | Mock | Endpoint | Body |
 |---|---|---|
-| mock-modbus-server | `PUT /registers` | `{"registers": {"4000": 15, "4001": 16960}}` — raw 16-bit words |
+| mock-modbus-server | `PUT /registers` | `{"registers": {"3206": 15, "3207": 16960}}` — raw 16-bit words (here: kwh_delivered's low words) |
 | mock-dnp3-outstation | `PUT /points` | `{"analog_inputs": {"0": 5000000.0}}` — engineering f64, unseeded indices added on demand |
 | mock-snmp-agent | `PUT /oids` | `{"values": {"1.3.6.1.4.1.1718.4.1.3.3.1.7": 32}}` — raw i64 |
 

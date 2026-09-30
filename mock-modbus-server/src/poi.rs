@@ -1,4 +1,4 @@
-//! POI meter instantaneous active power (poi_meter profile, addr 4030).
+//! POI meter instantaneous active power (poi_meter profile, float32 at 3060).
 //!
 //! `P_poi = SITE_LOAD_W − Σ rack active_power` (+ = import from grid), per
 //! Joe's SME review §6b. The racks are separate containers, so this reads
@@ -18,7 +18,7 @@ use std::time::Duration;
 use tracing::warn;
 
 /// poi_meter active_power register pair (int32 high_low), per edp-api 9e99d37.
-const POI_ACTIVE_POWER: u16 = 4030;
+const POI_ACTIVE_POWER: u16 = 3060;
 /// bess_rack active_power register pair (int32 high_low).
 const RACK_ACTIVE_POWER: u16 = 10;
 /// Per-read timeout against a rack.
@@ -29,13 +29,13 @@ pub fn poi_active_power(site_load_w: f64, rack_powers_w: &[f64]) -> f64 {
     site_load_w - rack_powers_w.iter().sum::<f64>()
 }
 
-/// Write P_poi to 4030-4031 (int32 high_low) unless either word is driven.
+/// Write P_poi to 3060-3061 (float32 high_low) unless either word is driven.
 pub fn write_poi_power(holding: &mut HashMap<u16, u16>, driven: &HashSet<u16>, p_w: f64) {
     if driven.contains(&POI_ACTIVE_POWER) || driven.contains(&(POI_ACTIVE_POWER + 1)) {
         return;
     }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let raw = p_w.round() as i32 as u32;
+    #[allow(clippy::cast_possible_truncation)]
+    let raw = (p_w as f32).to_bits();
     holding.insert(POI_ACTIVE_POWER, (raw >> 16) as u16);
     holding.insert(POI_ACTIVE_POWER + 1, raw as u16);
 }

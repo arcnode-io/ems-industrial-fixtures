@@ -3,8 +3,9 @@
 use super::{poi_active_power, write_poi_power};
 use std::collections::{HashMap, HashSet};
 
-fn read_i32(holding: &HashMap<u16, u16>) -> i32 {
-    ((u32::from(holding[&4030]) << 16) | u32::from(holding[&4031])) as i32
+/// ION9000 active power: float32, big-endian words at 3060-3061.
+fn read_f32(holding: &HashMap<u16, u16>) -> f32 {
+    f32::from_bits((u32::from(holding[&3060]) << 16) | u32::from(holding[&3061]))
 }
 
 #[test]
@@ -24,18 +25,22 @@ fn discharge_beyond_load_is_negative_export() {
 }
 
 #[test]
-fn register_holds_negative_export_as_twos_complement() {
+fn register_holds_negative_export_as_float32() {
     // Arrange
     let mut holding = HashMap::new();
     // Act
-    write_poi_power(&mut holding, &HashSet::new(), -7_200.0);
-    // Assert — decodes back through int32 high_low
-    assert_eq!(read_i32(&holding), -7_200);
+    write_poi_power(&mut holding, &HashSet::new(), -7_200.5);
+    // Assert — decodes back through float32 high_low
+    assert_eq!(read_f32(&holding), -7_200.5);
 }
 
 #[test]
 fn a_driven_poi_register_is_left_alone() {
-    let mut holding = HashMap::from([(4030, 0), (4031, 99)]);
-    write_poi_power(&mut holding, &HashSet::from([4031]), 42_800.0);
-    assert_eq!(read_i32(&holding), 99);
+    let driven_bits = 99.0_f32.to_bits();
+    let mut holding = HashMap::from([
+        (3060, (driven_bits >> 16) as u16),
+        (3061, driven_bits as u16),
+    ]);
+    write_poi_power(&mut holding, &HashSet::from([3061]), 42_800.0);
+    assert_eq!(read_f32(&holding), 99.0);
 }

@@ -11,27 +11,26 @@
 //!   `IllegalFunction` — real devices are a mix of read-only meters and
 //!   writable setpoints, so this is opt-in per fixture instance.
 //! - `MODBUS_PROFILE` → which device the registers model. `poi_meter`
-//!   (default) or `bess_rack`, a simulated battery rack that follows its
-//!   commanded setpoint and drains/fills SoC. `bess_rack` is always writable.
-//!   See `battery::from_env` for its own settings.
+//!   (default); `bess_rack`, a simulated battery rack that follows its
+//!   commanded setpoint and drains/fills SoC (see `battery::from_env`); or
+//!   `dc_external`, a static dry cooler (see `dc_external`). Every profile
+//!   but `poi_meter` is always writable.
 
 mod battery;
 mod control;
+mod dc_external;
 mod handler;
 mod poi;
 mod registers;
 mod simulator;
+mod tls;
 
 use handler::MeterHandler;
-use rodbus::server::{
-    AddressFilter, CertificateMode, MinTlsVersion, ReadOnlyAuthorizationHandler, RequestHandler,
-    ServerHandle, ServerHandlerMap, TlsServerConfig, spawn_tcp_server_task,
-    spawn_tls_server_task_with_authz,
-};
+use rodbus::server::{AddressFilter, RequestHandler, ServerHandlerMap, spawn_tcp_server_task};
 use rodbus::{DecodeLevel, UnitId};
 use simulator::Simulator;
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
@@ -77,18 +76,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(CONTROL_PORT);
     let profile = std::env::var("MODBUS_PROFILE").unwrap_or_else(|_| "poi_meter".into());
-    let (holding, battery) = match profile.as_str() {
-        "poi_meter" => (registers::holding_registers(), None),
+    let (holding, input, battery) = match profile.as_str() {
+        "poi_meter" => (registers::holding_registers(), HashMap::new(), None),
         "bess_rack" => {
             let (battery, holding) = battery::from_env()?;
-            (holding, Some(battery))
+            (holding, HashMap::new(), Some(battery))
         }
+        "dc_external" => (
+            dc_external::holding_registers(),
+            dc_external::input_registers(),
+            None,
+        ),
         other => return Err(format!("unknown MODBUS_PROFILE: {other}").into()),
     };
-    let writable =
-        battery.is_some() || std::env::var("MODBUS_WRITABLE").ok().as_deref() == Some("1");
+    // Only the poi_meter is a read-only device; the others take commands.
+    let poi_meter = profile == "poi_meter";
+    let writable = !poi_meter || std::env::var("MODBUS_WRITABLE").ok().as_deref() == Some("1");
 
     let mut meter = MeterHandler::new(holding);
+    meter.input = input;
     meter.writable = writable;
     let handler = meter.wrap();
     let map = ServerHandlerMap::single(UnitId::new(unit_id), handler.clone());
@@ -105,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // smoke-defense-348a8f8d (compose-state.log diagnostic).
     let _server_handle = if tls_mode {
         info!(%addr, unit_id, tick_ms, max_sessions, writable, "mock-modbus-server (TLS) listening");
-        spawn_tls(addr, map, max_sessions).await?
+        tls::spawn_tls(addr, map, max_sessions).await?
     } else {
         info!(%addr, unit_id, tick_ms, max_sessions, writable, %profile, "mock-modbus-server (plain) listening");
         spawn_tcp_server_task(
@@ -119,55 +125,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     control::spawn_control(handler.clone(), control_port).await?;
-    if battery.is_none() {
+    // Reason: the sawtooth and the POI tracker write poi_meter registers;
+    // run them for that profile only.
+    if poi_meter {
         poi::spawn_from_env(handler.clone(), Duration::from_millis(tick_ms))?;
     }
-    spawn_simulator(handler, tick_ms, battery);
+    if poi_meter || battery.is_some() {
+        spawn_simulator(handler, tick_ms, battery);
+    }
     tokio::signal::ctrl_c().await?;
     Ok(())
-}
-
-/// Build the Modbus Security (TLS + Role authz) server. CA-based mTLS via
-/// rodbus's `TlsServerConfig::new(CertificateMode::AuthorityBased)`; client
-/// role extracted from the X.509 Modbus Role extension (OID
-/// 1.3.6.1.4.1.50316.802.1) and checked by `ReadOnlyAuthorizationHandler`
-/// — accepts all reads, denies all writes. Matches Tier 1 gateway scope.
-async fn spawn_tls<T: RequestHandler>(
-    addr: SocketAddr,
-    map: ServerHandlerMap<T>,
-    max_sessions: usize,
-) -> Result<ServerHandle, Box<dyn std::error::Error>> {
-    let ca_bundle = require_env_path("MODBUS_TLS_CA")?;
-    let cert = require_env_path("MODBUS_TLS_CERT")?;
-    let key = require_env_path("MODBUS_TLS_KEY")?;
-    let tls_config = TlsServerConfig::new(
-        &ca_bundle,
-        &cert,
-        &key,
-        None,
-        MinTlsVersion::V1_3,
-        CertificateMode::AuthorityBased,
-    )?;
-    // Return the ServerHandle so caller can hold it until ctrl_c —
-    // dropping it tears down the TLS listener (same bug class as the
-    // plain branch). Caller's responsibility to keep the handle alive.
-    let server = spawn_tls_server_task_with_authz(
-        max_sessions,
-        addr,
-        map,
-        ReadOnlyAuthorizationHandler::create(),
-        tls_config,
-        AddressFilter::Any,
-        DecodeLevel::default(),
-    )
-    .await?;
-    Ok(server)
-}
-
-/// Resolve a required env var into a PathBuf, erroring with the var name.
-fn require_env_path(var: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let raw = std::env::var(var).map_err(|_| format!("missing required env: {var}"))?;
-    Ok(PathBuf::from(raw))
 }
 
 /// Run the simulator tick in the background — drifts holding-register values

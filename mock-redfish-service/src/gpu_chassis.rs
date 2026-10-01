@@ -5,15 +5,16 @@
 //! Readings are flat constants on purpose: a GPU training run holds near-flat
 //! at high utilization, which is the demo's point (compute keeps running
 //! through a curtailment while the BESS absorbs it). Tune via env, no rebuild:
-//! `GPU_DEMAND_W` (default 1000), `GPU_POWER_LIMIT_W` (700),
+//! `GPU_DEMAND_W` (default 1000), `GPU_POWER_LIMIT_W` (1000),
 //! `GPU_MAX_CLOCK_MHZ` (1980), `GPU_NODE_OVERHEAD_W` (2500),
 //! `GPU_NODE_POWER_LIMIT_W` (26400), `GPU_NODE_INLET_C` (25),
 //! `GPU_NODE_FAN_PERCENT` (45).
 //!
 //! Power figures are edp-module-assemblies CMP-NODE-001 (8× B200 HGX): 1000 W
 //! GPU TDP, 10.5 kW typical node draw at full load (so ~2.5 kW is the rest of
-//! the node), and a 4× 6600 W PSU nameplate limit. The 700 W GPU cap is the
-//! power-engineer's throttle scenario. Clock, temperature and fan duty are
+//! the node), and a 4× 6600 W PSU nameplate limit. The cap defaults to the
+//! TDP, so GPUs boot unthrottled at full load; set GPU_POWER_LIMIT_W below
+//! GPU_DEMAND_W to show a power-capped throttle. Clock, temperature and fan duty are
 //! illustrative only; the spec gives no figures for them.
 
 use crate::gpu_processors::{Gpu, environment_metrics_json, processor_metrics_json};
@@ -45,7 +46,7 @@ impl GpuChassis {
         Ok(Self {
             gpu: Gpu {
                 demand_w: env_f64("GPU_DEMAND_W", 1_000.0)?,
-                set_point_w: env_f64("GPU_POWER_LIMIT_W", 700.0)?,
+                set_point_w: env_f64("GPU_POWER_LIMIT_W", 1_000.0)?,
                 max_clock_mhz: env_f64("GPU_MAX_CLOCK_MHZ", 1_980.0)?,
             },
             overhead_w: env_f64("GPU_NODE_OVERHEAD_W", 2_500.0)?,

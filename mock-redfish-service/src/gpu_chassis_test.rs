@@ -46,3 +46,21 @@ fn inlet_temperature_is_its_own_sensor() {
     let json = inlet_sensor_json(&chassis());
     assert_eq!(json.pointer("/Reading"), Some(&25.0.into()));
 }
+
+#[test]
+fn the_node_boots_unthrottled_at_full_load() {
+    // Arrange — the demo: training at full power, no cap binding
+    // Act
+    let c = GpuChassis::from_env().unwrap();
+    // Assert — 8 × 1000 W + 2.5 kW = CMP-NODE-001's 10.5 kW
+    let power = power_json(&c);
+    assert_eq!(
+        power.pointer("/PowerControl/0/PowerConsumedWatts"),
+        Some(&10_500.0.into())
+    );
+    let proc = crate::gpu_processors::processor_metrics_json(&c.gpu);
+    assert_eq!(
+        proc.pointer("/Oem/Nvidia/ThrottleReasons/0"),
+        Some(&"NA".into())
+    );
+}

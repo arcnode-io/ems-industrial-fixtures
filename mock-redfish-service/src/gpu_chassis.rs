@@ -1,34 +1,40 @@
-//! gpu_node chassis resources (`/Chassis/1/{Power,Thermal,Processors}`),
-//! shaped to edp-api's gpu_node.yaml json_pointers.
+//! gpu_node's Redfish resources, shaped to edp-api's gpu_node.yaml
+//! json_pointers: node power, fan and inlet sensor on `/Chassis/1`, and the
+//! eight GPUs on the HGX baseboard (see `gpu_processors`).
 //!
 //! Readings are flat constants on purpose: a GPU training run holds near-flat
 //! at high utilization, which is the demo's point (compute keeps running
 //! through a curtailment while the BESS absorbs it). Tune via env, no rebuild:
-//! `GPU_NODE_POWER_W` (default 10500), `GPU_NODE_POWER_LIMIT_W` (26400),
-//! `GPU_TOTAL_POWER_W` (8000), `GPU_NODE_INLET_C` (25), `GPU_NODE_EXHAUST_C`
-//! (40), `GPU_NODE_FAN_PERCENT` (45).
+//! `GPU_DEMAND_W` (default 1000), `GPU_POWER_LIMIT_W` (700),
+//! `GPU_MAX_CLOCK_MHZ` (1980), `GPU_NODE_OVERHEAD_W` (2500),
+//! `GPU_NODE_POWER_LIMIT_W` (26400), `GPU_NODE_INLET_C` (25),
+//! `GPU_NODE_FAN_PERCENT` (45).
 //!
-//! Power defaults are edp-module-assemblies CMP-NODE-001 (8× B200 HGX):
-//! 10.5 kW typical sustained at full GPU load; 8× 1000 W GPU TDP; the limit
-//! is the 4× 6600 W PSU nameplate, i.e. an uncapped BMC. Temperatures and fan
-//! duty are illustrative only; the spec gives no figures for them.
+//! Power figures are edp-module-assemblies CMP-NODE-001 (8× B200 HGX): 1000 W
+//! GPU TDP, 10.5 kW typical node draw at full load (so ~2.5 kW is the rest of
+//! the node), and a 4× 6600 W PSU nameplate limit. The 700 W GPU cap is the
+//! power-engineer's throttle scenario. Clock, temperature and fan duty are
+//! illustrative only; the spec gives no figures for them.
 
+use crate::gpu_processors::{Gpu, environment_metrics_json, processor_metrics_json};
 use axum::{Json, Router, routing::get};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-/// Readings the chassis reports.
+/// GPUs on the HGX baseboard.
+const GPUS: u8 = 8;
+
+/// Readings the node reports.
+#[derive(Debug, Clone, Copy)]
 pub struct GpuChassis {
-    /// Whole-node draw.
-    pub power_consumed_w: f64,
-    /// BMC power cap.
+    /// Every GPU's operating point (all eight run the same workload).
+    pub gpu: Gpu,
+    /// Draw of everything but the GPUs: CPUs, NICs, fans.
+    pub overhead_w: f64,
+    /// Node BMC power cap.
     pub power_limit_w: f64,
-    /// Sum across the node's GPUs.
-    pub gpu_power_w: f64,
     /// Inlet temperature.
     pub inlet_c: f64,
-    /// Exhaust temperature.
-    pub exhaust_c: f64,
     /// Fan duty.
     pub fan_percent: f64,
 }
@@ -37,11 +43,14 @@ impl GpuChassis {
     /// Read readings from env, falling back to the defaults above.
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
-            power_consumed_w: env_f64("GPU_NODE_POWER_W", 10_500.0)?,
+            gpu: Gpu {
+                demand_w: env_f64("GPU_DEMAND_W", 1_000.0)?,
+                set_point_w: env_f64("GPU_POWER_LIMIT_W", 700.0)?,
+                max_clock_mhz: env_f64("GPU_MAX_CLOCK_MHZ", 1_980.0)?,
+            },
+            overhead_w: env_f64("GPU_NODE_OVERHEAD_W", 2_500.0)?,
             power_limit_w: env_f64("GPU_NODE_POWER_LIMIT_W", 26_400.0)?,
-            gpu_power_w: env_f64("GPU_TOTAL_POWER_W", 8_000.0)?,
             inlet_c: env_f64("GPU_NODE_INLET_C", 25.0)?,
-            exhaust_c: env_f64("GPU_NODE_EXHAUST_C", 40.0)?,
             fan_percent: env_f64("GPU_NODE_FAN_PERCENT", 45.0)?,
         })
     }
@@ -57,27 +66,48 @@ fn env_f64(name: &str, default: f64) -> Result<f64, String> {
     }
 }
 
-/// Routes for the three chassis resources, over fixed readings.
+/// Routes for the node's resources and each GPU's, over fixed readings.
 pub fn router(chassis: GpuChassis) -> Router {
     let c = Arc::new(chassis);
-    let (p, t, g) = (c.clone(), c.clone(), c);
-    Router::new()
-        .route(
-            "/redfish/v1/Chassis/1/Power",
-            get(move || async move { Json(power_json(&p)) }),
-        )
+    let mut router = Router::new()
+        .route("/redfish/v1/Chassis/1/Power", get(serve(&c, power_json)))
         .route(
             "/redfish/v1/Chassis/1/Thermal",
-            get(move || async move { Json(thermal_json(&t)) }),
+            get(serve(&c, thermal_json)),
         )
         .route(
-            "/redfish/v1/Chassis/1/Processors",
-            get(move || async move { Json(processors_json(&g)) }),
-        )
+            "/redfish/v1/Chassis/1/Sensors/InletTemp",
+            get(serve(&c, inlet_sensor_json)),
+        );
+    for n in 1..=GPUS {
+        let base = format!("/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_{n}");
+        router = router
+            .route(
+                &format!("{base}/EnvironmentMetrics"),
+                get(serve(&c, |c| environment_metrics_json(&c.gpu))),
+            )
+            .route(
+                &format!("{base}/ProcessorMetrics"),
+                get(serve(&c, |c| processor_metrics_json(&c.gpu))),
+            );
+    }
+    router
 }
 
-/// Redfish Power resource.
+/// An axum handler rendering `render` over the shared readings.
+fn serve(
+    c: &Arc<GpuChassis>,
+    render: fn(&GpuChassis) -> Value,
+) -> impl Fn() -> std::future::Ready<Json<Value>> + Clone + Send + Sync + 'static {
+    let c = c.clone();
+    move || std::future::ready(Json(render(&c)))
+}
+
+/// Redfish Power resource; node draw is the GPUs plus everything else.
 pub fn power_json(c: &GpuChassis) -> Value {
+    let per_gpu = environment_metrics_json(&c.gpu)["PowerWatts"]["Reading"]
+        .as_f64()
+        .unwrap_or_default();
     json!({
         "@odata.id": "/redfish/v1/Chassis/1/Power",
         "@odata.type": "#Power.v1_7_1.Power",
@@ -86,40 +116,35 @@ pub fn power_json(c: &GpuChassis) -> Value {
         "PowerControl": [{
             "MemberId": "0",
             "Name": "Chassis Power Control",
-            "PowerConsumedWatts": c.power_consumed_w,
+            "PowerConsumedWatts": f64::from(GPUS) * per_gpu + c.overhead_w,
             "PowerLimit": { "LimitInWatts": c.power_limit_w },
         }],
     })
 }
 
-/// Redfish Thermal resource.
+/// Redfish Thermal resource (fans only; temperatures are Sensors).
 pub fn thermal_json(c: &GpuChassis) -> Value {
     json!({
         "@odata.id": "/redfish/v1/Chassis/1/Thermal",
         "@odata.type": "#Thermal.v1_7_0.Thermal",
         "Id": "Thermal",
         "Name": "Thermal",
-        "Temperatures": [
-            { "MemberId": "0", "Name": "Inlet Temp", "ReadingCelsius": c.inlet_c },
-            { "MemberId": "1", "Name": "Exhaust Temp", "ReadingCelsius": c.exhaust_c },
-        ],
         "Fans": [
             { "MemberId": "0", "Name": "Fan 1", "Reading": c.fan_percent, "ReadingUnits": "Percent" },
         ],
     })
 }
 
-/// Redfish Processors collection, with NVIDIA's OEM total GPU power.
-pub fn processors_json(c: &GpuChassis) -> Value {
+/// Redfish Sensor resource for the inlet temperature.
+pub fn inlet_sensor_json(c: &GpuChassis) -> Value {
     json!({
-        "@odata.id": "/redfish/v1/Chassis/1/Processors",
-        "@odata.type": "#ProcessorCollection.ProcessorCollection",
-        "Name": "Processors Collection",
-        "Members@odata.count": 1,
-        "Members": [{
-            "@odata.id": "/redfish/v1/Chassis/1/Processors/GPU_SXM_1",
-            "Oem": { "Nvidia": { "TotalPowerWatts": c.gpu_power_w } },
-        }],
+        "@odata.id": "/redfish/v1/Chassis/1/Sensors/InletTemp",
+        "@odata.type": "#Sensor.v1_7_0.Sensor",
+        "Id": "InletTemp",
+        "Name": "Inlet Temp",
+        "ReadingType": "Temperature",
+        "ReadingUnits": "Cel",
+        "Reading": c.inlet_c,
     })
 }
 

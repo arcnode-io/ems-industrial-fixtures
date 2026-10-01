@@ -9,6 +9,7 @@
 //! - else → plain HTTP. Default port: 8443 (already HTTP-on-:8443 convention).
 
 mod gpu_chassis;
+mod gpu_processors;
 
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;

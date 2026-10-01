@@ -4,8 +4,7 @@
 //! One batch endpoint, `PUT /points`, applied in a single outstation
 //! transaction. DNP3 carries engineering values (f64) directly — no
 //! raw-word encoding like Modbus. Unknown point indices are seeded on
-//! demand so a DTM template (e.g. operating_envelope: points 0, 1, 100)
-//! can be driven without pre-declaring its map here. Sim-fixture only —
+//! demand, so a point outside the relay's seeded map can still be driven. Sim-fixture only —
 //! never expose this port beyond the deployment network.
 
 use axum::extract::State;
@@ -38,7 +37,8 @@ pub struct ControlState {
     pub driven: DrivenSet,
 }
 
-/// Batch point write: `{ "analog_inputs": { "0": 5000000.0, "100": 0.0 } }`.
+/// Batch point write: `{ "analog_inputs": { "0": 410.0, "8": 7.05 } }`
+/// (phase A current in amps, phase A voltage in kV).
 #[derive(Deserialize)]
 pub struct SetPoints {
     /// Point index -> engineering value.

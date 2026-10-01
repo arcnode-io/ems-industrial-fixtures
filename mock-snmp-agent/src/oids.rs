@@ -1,6 +1,9 @@
-//! Canned OID map for the `pdu` template (Server Technology PRO3X), from
-//! Sentry4-MIB (enterprise 1718), mirroring edp-api's pdu.yaml. Values are
-//! raw MIB integers; the template's scale turns them into units.
+//! Canned OID map for the `pdu` template (Server Technology PRO3X, Sentry4-
+//! MIB, enterprise 1718) and the `network_switch` template (NVIDIA SN5600 on
+//! Cumulus: IF-MIB + ENTITY-SENSOR-MIB), mirroring edp-api's pdu.yaml and
+//! network_switch.yaml. Values are raw MIB integers; the template's scale
+//! turns them into units. The OID trees don't overlap, so one agent serves
+//! both.
 //!
 //! | measurement      | OID (…1718.4.1.)       | raw  | scale | value    |
 //! |------------------|------------------------|------|-------|----------|
@@ -14,6 +17,14 @@
 //! st4LineCurrent in hundredths of an amp, st4PhaseVoltage in tenths of a
 //! volt (~240 V phase for 415 V line-to-line). Phases differ on purpose so a
 //! phase mixup shows as a wrong number. L1 current drifts (see simulator).
+//!
+//! | network_switch    | OID (1.3.6.1.2.1.)  | value     |
+//! |-------------------|---------------------|-----------|
+//! | port_link_status  | 2.2.1.8.1           | 1 (up)    |
+//! | inlet_temp        | 99.1.1.1.4.1        | 27 °C     |
+//! | asic_temp         | 99.1.1.1.4.2        | 58 °C     |
+//!
+//! Sensor indices 1/2 and ifIndex 1 are the template's unverified defaults.
 
 use std::collections::HashMap;
 
@@ -31,6 +42,10 @@ pub fn initial_values() -> HashMap<Vec<u32>, i64> {
         (sentry4(5, 1), 2400),
         (sentry4(5, 2), 2395),
         (sentry4(5, 3), 2405),
+        // network_switch: ifOperStatus.1 = up(1), entPhySensorValue.1/.2
+        (vec![1, 3, 6, 1, 2, 1, 2, 2, 1, 8, 1], 1),
+        (vec![1, 3, 6, 1, 2, 1, 99, 1, 1, 1, 4, 1], 27),
+        (vec![1, 3, 6, 1, 2, 1, 99, 1, 1, 1, 4, 2], 58),
     ])
 }
 
@@ -55,5 +70,16 @@ mod tests {
         assert!((volts(1) - 240.0).abs() < 1e-9 && (volts(2) - 239.5).abs() < 1e-9);
         assert!((volts(3) - 240.5).abs() < 1e-9);
         assert_eq!(OID_INPUT_CURRENT.to_vec(), oid(4, 1));
+    }
+
+    #[test]
+    fn every_network_switch_binding_reads_a_plausible_value() {
+        // Arrange — IF-MIB and ENTITY-SENSOR-MIB, per edp-api network_switch.yaml
+        let m = initial_values();
+        let mib2 = |tail: &[u32]| [&[1, 3, 6, 1, 2, 1][..], tail].concat();
+        // Act + Assert
+        assert_eq!(m[&mib2(&[2, 2, 1, 8, 1])], 1, "port_link_status UP");
+        assert_eq!(m[&mib2(&[99, 1, 1, 1, 4, 1])], 27, "inlet_temp °C");
+        assert_eq!(m[&mib2(&[99, 1, 1, 1, 4, 2])], 58, "asic_temp °C");
     }
 }

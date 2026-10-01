@@ -6,7 +6,8 @@
 //! | measurement           | point | value      |
 //! |-----------------------|-------|------------|
 //! | phase_a/b/c_current   | AI 0/2/4   | 150 / 152 / 148 A |
-//! | phase_voltage_a/b/c   | AI 8/10/12 | 7.97 / 7.95 / 7.99 kV (13.8 kV L-L) |
+//! | phase_voltage_a/b/c   | AI 8/10/12 | 7.20 / 7.18 / 7.22 kV (12.47 kV L-L) |
+//! | breaker_closed        | BI 0  | set (52A)        |
 //! | trip_status           | BI 9  | clear (TRIP_LED) |
 //! | ground_fault          | BI 15 | clear (G target) |
 //! | anti_islanding_armed  | BI 24 | set (user-settable slot) |
@@ -26,13 +27,13 @@ const ANALOGS: [(u16, f64); 6] = [
     (0, 150.0),
     (2, 152.0),
     (4, 148.0),
-    (8, 7.97),
-    (10, 7.95),
-    (12, 7.99),
+    (8, 7.20),
+    (10, 7.18),
+    (12, 7.22),
 ];
 
 /// Binary inputs: (point index, set).
-const BINARIES: [(u16, bool); 4] = [(9, false), (15, false), (24, true), (25, true)];
+const BINARIES: [(u16, bool); 5] = [(0, true), (9, false), (15, false), (24, true), (25, true)];
 
 /// Seed every SEL-351 point with its static value.
 pub fn seed(db: &mut Database) {

@@ -1,6 +1,5 @@
 //! mock-redfish-service — Redfish HTTP / HTTPS+mTLS server fixture.
-//! Serves `/redfish/v1/Chassis/1/{Power,Thermal,Processors}` (gpu_node) —
-//! see `gpu_chassis`.
+//! Serves gpu_node (see `gpu_chassis`) and cdu (see `cdu`).
 //!
 //! Modes selected by env:
 //! - `REDFISH_TLS=1` → HTTPS + CA-validated mTLS (DSP0266 §13.1 + §13.3.5).
@@ -8,6 +7,7 @@
 //!   Default port: 8443.
 //! - else → plain HTTP. Default port: 8443 (already HTTP-on-:8443 convention).
 
+mod cdu;
 mod gpu_chassis;
 mod gpu_processors;
 
@@ -31,7 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(8443);
-    let app = Router::new().merge(gpu_chassis::router(gpu_chassis::GpuChassis::from_env()?));
+    let app = Router::new()
+        .merge(gpu_chassis::router(gpu_chassis::GpuChassis::from_env()?))
+        .merge(cdu::router());
 
     let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
     let mode = if tls_mode { "HTTPS+mTLS" } else { "HTTP" };

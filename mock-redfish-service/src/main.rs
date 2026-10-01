@@ -1,7 +1,6 @@
 //! mock-redfish-service — Redfish HTTP / HTTPS+mTLS server fixture.
-//! Serves `/redfish/v1/Chassis/SW1/Thermal` (network_switch) backed by a
-//! ticking simulator, and `/redfish/v1/Chassis/1/{Power,Thermal,Processors}`
-//! (gpu_node) as flat readings — see `gpu_chassis`.
+//! Serves `/redfish/v1/Chassis/1/{Power,Thermal,Processors}` (gpu_node) —
+//! see `gpu_chassis`.
 //!
 //! Modes selected by env:
 //! - `REDFISH_TLS=1` → HTTPS + CA-validated mTLS (DSP0266 §13.1 + §13.3.5).
@@ -10,27 +9,17 @@
 //! - else → plain HTTP. Default port: 8443 (already HTTP-on-:8443 convention).
 
 mod gpu_chassis;
-mod simulator;
 
 use axum::Router;
-use axum::extract::State;
-use axum::routing::get;
 use axum_server::tls_rustls::RustlsConfig;
 use rustls::RootCertStore;
 use rustls::pki_types::CertificateDer;
 use rustls::server::WebPkiClientVerifier;
-use serde_json::{Value, json};
-use simulator::{Simulator, Thermal};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
 use tracing::info;
-
-/// Shared state passed into the axum handlers.
-type ThermalState = Arc<Mutex<Thermal>>;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -41,34 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(8443);
-    let tick_ms: u64 = std::env::var("TICK_MS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1000);
-
-    let state: ThermalState = Arc::new(Mutex::new(Thermal::new()));
-
-    // Simulator tick task.
-    let sim_state = state.clone();
-    tokio::spawn(async move {
-        let sim = Simulator::new();
-        loop {
-            {
-                let mut t = sim_state.lock().await;
-                sim.tick(&mut t);
-            }
-            tokio::time::sleep(Duration::from_millis(tick_ms)).await;
-        }
-    });
-
-    let app = Router::new()
-        .route("/redfish/v1/Chassis/SW1/Thermal", get(thermal_handler))
-        .with_state(state)
-        .merge(gpu_chassis::router(gpu_chassis::GpuChassis::from_env()?));
+    let app = Router::new().merge(gpu_chassis::router(gpu_chassis::GpuChassis::from_env()?));
 
     let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
     let mode = if tls_mode { "HTTPS+mTLS" } else { "HTTP" };
-    info!(%addr, tick_ms, mode, "mock-redfish-service listening");
+    info!(%addr, mode, "mock-redfish-service listening");
 
     if tls_mode {
         // rustls 0.23 needs a provider; install ring (idempotent).
@@ -82,24 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         axum::serve(listener, app).await?;
     }
     Ok(())
-}
-
-/// Render the current Thermal resource per Redfish DSP0266 §Thermal schema.
-async fn thermal_handler(State(state): State<ThermalState>) -> axum::Json<Value> {
-    let t = state.lock().await;
-    axum::Json(json!({
-        "@odata.id": "/redfish/v1/Chassis/SW1/Thermal",
-        "@odata.type": "#Thermal.v1_7_0.Thermal",
-        "Id": "Thermal",
-        "Name": "Thermal",
-        "Temperatures": [
-            { "Name": "Inlet", "ReadingCelsius": t.inlet_temp },
-            { "Name": "ASIC", "ReadingCelsius": t.asic_temp },
-        ],
-        "Fans": [
-            { "Name": "Fan1", "Reading": t.fan_speed, "ReadingUnits": "Percent" },
-        ],
-    }))
 }
 
 /// Build a rustls ServerConfig requiring CA-validated client certs per

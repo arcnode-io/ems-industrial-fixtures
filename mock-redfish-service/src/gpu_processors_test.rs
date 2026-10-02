@@ -43,3 +43,43 @@ fn an_uncapped_gpu_draws_its_demand_at_full_clock() {
         Some(&"NA".into())
     );
 }
+
+#[test]
+fn a_patched_set_point_caps_the_gpu() {
+    // Arrange
+    let mut gpu = UNCAPPED;
+    // Act — the gateway's PATCH body
+    let applied =
+        gpu.set_power_limit(&serde_json::json!({ "PowerLimitWatts": { "SetPoint": 810.0 } }));
+    // Assert
+    assert_eq!(applied, Ok(()));
+    assert_eq!(
+        environment_metrics_json(&gpu).pointer("/PowerWatts/Reading"),
+        Some(&810.0.into())
+    );
+}
+
+#[test]
+fn a_set_point_outside_the_allowable_range_is_refused() {
+    // Arrange — DGX B200: 200–1000 W, advertised on the resource
+    let mut gpu = UNCAPPED;
+    let env = environment_metrics_json(&gpu);
+    assert_eq!(
+        env.pointer("/PowerLimitWatts/AllowableMin"),
+        Some(&200.0.into())
+    );
+    assert_eq!(
+        env.pointer("/PowerLimitWatts/AllowableMax"),
+        Some(&1000.0.into())
+    );
+    // Act + Assert — refused, cap unchanged
+    for bad in [150.0, 1200.0] {
+        let body = serde_json::json!({ "PowerLimitWatts": { "SetPoint": bad } });
+        assert!(gpu.set_power_limit(&body).is_err(), "{bad} W accepted");
+    }
+    assert!(
+        gpu.set_power_limit(&serde_json::json!({ "Other": 1 }))
+            .is_err()
+    );
+    assert_eq!(gpu.set_point_w, 1000.0);
+}

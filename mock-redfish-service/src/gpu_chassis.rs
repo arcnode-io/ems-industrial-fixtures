@@ -3,8 +3,9 @@
 //! eight GPUs on the HGX baseboard (see `gpu_processors`).
 //!
 //! Readings are flat constants on purpose: a GPU training run holds near-flat
-//! at high utilization, which is the demo's point (compute keeps running
-//! through a curtailment while the BESS absorbs it). Tune via env, no rebuild:
+//! at high utilization. Each GPU's power cap is writable, as on a DGX B200:
+//! PATCH its EnvironmentMetrics `PowerLimitWatts/SetPoint` (200–1000 W) and
+//! it throttles. Tune via env, no rebuild:
 //! `GPU_DEMAND_W` (default 1000), `GPU_POWER_LIMIT_W` (1000),
 //! `GPU_MAX_CLOCK_MHZ` (1980), `GPU_NODE_OVERHEAD_W` (2500),
 //! `GPU_NODE_POWER_LIMIT_W` (26400), `GPU_NODE_INLET_C` (25),
@@ -13,14 +14,15 @@
 //! Power figures are edp-module-assemblies CMP-NODE-001 (8× B200 HGX): 1000 W
 //! GPU TDP, 10.5 kW typical node draw at full load (so ~2.5 kW is the rest of
 //! the node), and a 4× 6600 W PSU nameplate limit. The cap defaults to the
-//! TDP, so GPUs boot unthrottled at full load; set GPU_POWER_LIMIT_W below
-//! GPU_DEMAND_W to show a power-capped throttle. Clock, temperature and fan duty are
+//! TDP, so GPUs boot unthrottled at full load; GPU_POWER_LIMIT_W sets every
+//! GPU's boot cap. Clock, temperature and fan duty are
 //! illustrative only; the spec gives no figures for them.
 
 use crate::gpu_processors::{Gpu, environment_metrics_json, processor_metrics_json};
+use axum::http::StatusCode;
 use axum::{Json, Router, routing::get};
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// GPUs on the HGX baseboard.
 const GPUS: u8 = 8;
@@ -67,48 +69,88 @@ fn env_f64(name: &str, default: f64) -> Result<f64, String> {
     }
 }
 
-/// Routes for the node's resources and each GPU's, over fixed readings.
+/// The node as served: fixed readings plus each GPU's own, writable cap.
+struct Node {
+    /// Fixed readings.
+    chassis: GpuChassis,
+    /// GPU_SXM_1..8, each capped independently by a PATCH.
+    gpus: Mutex<[Gpu; GPUS as usize]>,
+}
+
+/// Routes for the node's resources and each GPU's. GPU caps are writable
+/// (PATCH EnvironmentMetrics), the rest is read-only.
 pub fn router(chassis: GpuChassis) -> Router {
-    let c = Arc::new(chassis);
+    let node = Arc::new(Node {
+        gpus: Mutex::new([chassis.gpu; GPUS as usize]),
+        chassis,
+    });
     let mut router = Router::new()
-        .route("/redfish/v1/Chassis/1/Power", get(serve(&c, power_json)))
+        .route(
+            "/redfish/v1/Chassis/1/Power",
+            get(serve(&node, |n, gpus| power_json(&n.chassis, gpus))),
+        )
         .route(
             "/redfish/v1/Chassis/1/Thermal",
-            get(serve(&c, thermal_json)),
+            get(serve(&node, |n, _| thermal_json(&n.chassis))),
         )
         .route(
             "/redfish/v1/Chassis/1/Sensors/InletTemp",
-            get(serve(&c, inlet_sensor_json)),
+            get(serve(&node, |n, _| inlet_sensor_json(&n.chassis))),
         );
-    for n in 1..=GPUS {
-        let base = format!("/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_{n}");
+    for i in 0..usize::from(GPUS) {
+        let base = format!(
+            "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_{}",
+            i + 1
+        );
+        let patched = node.clone();
         router = router
             .route(
                 &format!("{base}/EnvironmentMetrics"),
-                get(serve(&c, |c| environment_metrics_json(&c.gpu))),
+                get(serve_gpu(&node, i, environment_metrics_json)).patch(
+                    move |Json(body): Json<Value>| async move {
+                        let mut gpus = patched.gpus.lock().unwrap();
+                        match gpus[i].set_power_limit(&body) {
+                            Ok(()) => (StatusCode::OK, Json(environment_metrics_json(&gpus[i]))),
+                            Err(reason) => {
+                                (StatusCode::BAD_REQUEST, Json(json!({ "error": reason })))
+                            }
+                        }
+                    },
+                ),
             )
             .route(
                 &format!("{base}/ProcessorMetrics"),
-                get(serve(&c, |c| processor_metrics_json(&c.gpu))),
+                get(serve_gpu(&node, i, processor_metrics_json)),
             );
     }
     router
 }
 
-/// An axum handler rendering `render` over the shared readings.
+/// An axum handler rendering `render` over the node's current state.
 fn serve(
-    c: &Arc<GpuChassis>,
-    render: fn(&GpuChassis) -> Value,
+    node: &Arc<Node>,
+    render: fn(&Node, &[Gpu]) -> Value,
 ) -> impl Fn() -> std::future::Ready<Json<Value>> + Clone + Send + Sync + 'static {
-    let c = c.clone();
-    move || std::future::ready(Json(render(&c)))
+    let node = node.clone();
+    move || std::future::ready(Json(render(&node, &*node.gpus.lock().unwrap())))
+}
+
+/// An axum handler rendering `render` over GPU `i`'s current state.
+fn serve_gpu(
+    node: &Arc<Node>,
+    i: usize,
+    render: fn(&Gpu) -> Value,
+) -> impl Fn() -> std::future::Ready<Json<Value>> + Clone + Send + Sync + 'static {
+    let node = node.clone();
+    move || std::future::ready(Json(render(&node.gpus.lock().unwrap()[i])))
 }
 
 /// Redfish Power resource; node draw is the GPUs plus everything else.
-pub fn power_json(c: &GpuChassis) -> Value {
-    let per_gpu = environment_metrics_json(&c.gpu)["PowerWatts"]["Reading"]
-        .as_f64()
-        .unwrap_or_default();
+pub fn power_json(c: &GpuChassis, gpus: &[Gpu]) -> Value {
+    let gpu_w: f64 = gpus
+        .iter()
+        .filter_map(|g| environment_metrics_json(g)["PowerWatts"]["Reading"].as_f64())
+        .sum();
     json!({
         "@odata.id": "/redfish/v1/Chassis/1/Power",
         "@odata.type": "#Power.v1_7_1.Power",
@@ -117,7 +159,7 @@ pub fn power_json(c: &GpuChassis) -> Value {
         "PowerControl": [{
             "MemberId": "0",
             "Name": "Chassis Power Control",
-            "PowerConsumedWatts": f64::from(GPUS) * per_gpu + c.overhead_w,
+            "PowerConsumedWatts": gpu_w + c.overhead_w,
             "PowerLimit": { "LimitInWatts": c.power_limit_w },
         }],
     })

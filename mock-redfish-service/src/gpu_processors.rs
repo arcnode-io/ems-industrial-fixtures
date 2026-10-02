@@ -9,6 +9,11 @@
 
 use serde_json::{Value, json};
 
+/// Lowest power cap the GPU accepts (NVIDIA DGX B200 guide).
+const ALLOWABLE_MIN_W: f64 = 200.0;
+/// Highest power cap the GPU accepts: its TDP.
+const ALLOWABLE_MAX_W: f64 = 1_000.0;
+
 /// One GPU's operating point.
 #[derive(Debug, Clone, Copy)]
 pub struct Gpu {
@@ -26,7 +31,12 @@ pub fn environment_metrics_json(g: &Gpu) -> Value {
         "@odata.type": "#EnvironmentMetrics.v1_3_0.EnvironmentMetrics",
         "Id": "EnvironmentMetrics",
         "PowerWatts": { "Reading": g.power_w() },
-        "PowerLimitWatts": { "SetPoint": g.set_point_w, "ControlMode": "Manual" },
+        "PowerLimitWatts": {
+            "SetPoint": g.set_point_w,
+            "AllowableMin": ALLOWABLE_MIN_W,
+            "AllowableMax": ALLOWABLE_MAX_W,
+            "ControlMode": "Manual",
+        },
     })
 }
 
@@ -42,6 +52,22 @@ pub fn processor_metrics_json(g: &Gpu) -> Value {
 }
 
 impl Gpu {
+    /// Apply a PATCH of EnvironmentMetrics. Only `PowerLimitWatts/SetPoint`
+    /// is writable, and only inside the allowable range.
+    pub fn set_power_limit(&mut self, body: &Value) -> Result<(), String> {
+        let watts = body
+            .pointer("/PowerLimitWatts/SetPoint")
+            .and_then(Value::as_f64)
+            .ok_or("PATCH must set PowerLimitWatts/SetPoint")?;
+        if !(ALLOWABLE_MIN_W..=ALLOWABLE_MAX_W).contains(&watts) {
+            return Err(format!(
+                "SetPoint {watts} W outside {ALLOWABLE_MIN_W}–{ALLOWABLE_MAX_W} W"
+            ));
+        }
+        self.set_point_w = watts;
+        Ok(())
+    }
+
     /// Whether the cap is holding the GPU below its demand.
     fn capped(&self) -> bool {
         self.set_point_w < self.demand_w

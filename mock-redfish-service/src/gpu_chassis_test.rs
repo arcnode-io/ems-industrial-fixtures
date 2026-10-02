@@ -21,13 +21,17 @@ fn chassis() -> GpuChassis {
 
 #[test]
 fn node_power_is_its_gpus_plus_the_rest_of_the_node() {
-    // Arrange — 8 GPUs capped at 700 W, 2.5 kW for CPUs, NICs, fans
+    // Arrange — seven GPUs capped at 700 W, one uncapped at 1000 W, 2.5 kW
+    // for CPUs, NICs, fans
+    let c = chassis();
+    let mut gpus = [c.gpu; 8];
+    gpus[7].set_point_w = 1000.0;
     // Act
-    let json = power_json(&chassis());
-    // Assert — so the node total and the per-GPU sum agree
+    let json = power_json(&c, &gpus);
+    // Assert — each GPU counts at its own draw
     assert_eq!(
         json.pointer("/PowerControl/0/PowerConsumedWatts"),
-        Some(&8_100.0.into())
+        Some(&8_400.0.into())
     );
     assert_eq!(
         json.pointer("/PowerControl/0/PowerLimit/LimitInWatts"),
@@ -53,7 +57,7 @@ fn the_node_boots_unthrottled_at_full_load() {
     // Act
     let c = GpuChassis::from_env().unwrap();
     // Assert — 8 × 1000 W + 2.5 kW = CMP-NODE-001's 10.5 kW
-    let power = power_json(&c);
+    let power = power_json(&c, &[c.gpu; 8]);
     assert_eq!(
         power.pointer("/PowerControl/0/PowerConsumedWatts"),
         Some(&10_500.0.into())

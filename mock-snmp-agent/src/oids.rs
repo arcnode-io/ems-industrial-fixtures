@@ -13,9 +13,11 @@
 //! | input_voltage_l1 | 5.3.1.3.1.1.1          | 2400 | 0.1   | 240.0 V  |
 //! | input_voltage_l2 | 5.3.1.3.1.1.2          | 2395 | 0.1   | 239.5 V  |
 //! | input_voltage_l3 | 5.3.1.3.1.1.3          | 2405 | 0.1   | 240.5 V  |
+//! | input_power      | 3.3.1.3.1.1            | 10800| 1     | 10.8 kW  |
 //!
 //! st4LineCurrent in hundredths of an amp, st4PhaseVoltage in tenths of a
-//! volt (~240 V phase for 415 V line-to-line). Phases differ on purpose so a
+//! volt (~240 V phase for 415 V line-to-line), st4InputCordActivePower in
+//! watts: the phases' V × I at unity power factor. Phases differ on purpose so a
 //! phase mixup shows as a wrong number. L1 current drifts (see simulator).
 //!
 //! | network_switch    | OID (1.3.6.1.2.1.)  | value     |
@@ -42,6 +44,8 @@ pub fn initial_values() -> HashMap<Vec<u32>, i64> {
         (sentry4(5, 1), 2400),
         (sentry4(5, 2), 2395),
         (sentry4(5, 3), 2405),
+        // st4InputCordActivePower: the three phases' V × I, unity PF
+        (vec![1, 3, 6, 1, 4, 1, 1718, 4, 1, 3, 3, 1, 3, 1, 1], 10_800),
         // network_switch: ifOperStatus.1 = up(1), entPhySensorValue.1/.2
         (vec![1, 3, 6, 1, 2, 1, 2, 2, 1, 8, 1], 1),
         (vec![1, 3, 6, 1, 2, 1, 99, 1, 1, 1, 4, 1], 27),
@@ -70,6 +74,19 @@ mod tests {
         assert!((volts(1) - 240.0).abs() < 1e-9 && (volts(2) - 239.5).abs() < 1e-9);
         assert!((volts(3) - 240.5).abs() < 1e-9);
         assert_eq!(OID_INPUT_CURRENT.to_vec(), oid(4, 1));
+    }
+
+    #[test]
+    fn input_power_is_the_cords_three_phases() {
+        // Arrange — st4InputCordActivePower, integer watts (scale 1)
+        let m = initial_values();
+        let cord = vec![1, 3, 6, 1, 4, 1, 1718, 4, 1, 3, 3, 1, 3, 1, 1];
+        // Act — what the phases carry, at unity power factor
+        let va: f64 = (1..=3)
+            .map(|p| m[&oid(4, p)] as f64 * 0.01 * m[&oid(5, p)] as f64 * 0.1)
+            .sum();
+        // Assert
+        assert_eq!(m[&cord], va.round() as i64);
     }
 
     #[test]

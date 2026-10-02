@@ -3,6 +3,7 @@
 
 mod control;
 mod oids;
+mod pdu_load;
 mod simulator;
 mod usm;
 mod v3;
@@ -50,6 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         control_port,
     )
     .await?;
+
+    pdu_load::spawn_from_env(values.clone(), driven.clone())?;
 
     // Optional SNMPv3 USM — enabled when SNMP_V3_AUTH_PASS is set.
     // SNMP_V3_USER defaults to "gateway"; matches the gateway's default

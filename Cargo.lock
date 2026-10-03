@@ -1087,8 +1087,10 @@ name = "mock-modbus-server"
 version = "1.0.0-beta"
 dependencies = [
  "axum",
+ "reqwest",
  "rodbus",
  "serde",
+ "serde_json",
  "tokio",
  "tower",
  "tracing",

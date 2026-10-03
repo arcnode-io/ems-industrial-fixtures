@@ -5,10 +5,12 @@
 //! each one's active_power over Modbus, the same way a real meter sees the
 //! battery's output at the connection point.
 //!
-//! Env: `SITE_LOAD_W` (default 0; set it to the Redfish GPU total plus
-//! auxiliary load) and `POI_BESS_RACKS` (comma-separated `host:port`, default
-//! none, in which case P_poi is just the site load).
+//! Env: `SITE_LOAD_W` (default 0): the site load, or with `SITE_COMPUTE_URL`
+//! set, everything but compute (see `compute_load`); `POI_BESS_RACKS`
+//! (comma-separated `host:port`, default none, in which case P_poi is just
+//! the site load).
 
+use crate::compute_load::{ComputeLoad, node_power, site_load};
 use crate::handler::MeterHandler;
 use rodbus::client::{Channel, HostAddr, RequestParam, spawn_tcp_client_task};
 use rodbus::{AddressRange, DecodeLevel, UnitId};
@@ -47,7 +49,7 @@ pub fn spawn_from_env(
     handler: Arc<Mutex<Box<MeterHandler>>>,
     tick: Duration,
 ) -> Result<(), String> {
-    let site_load = match std::env::var("SITE_LOAD_W") {
+    let fixed_load = match std::env::var("SITE_LOAD_W") {
         Ok(raw) => raw
             .parse::<f64>()
             .map_err(|_| format!("SITE_LOAD_W is not a number: {raw}"))?,
@@ -71,11 +73,26 @@ pub fn spawn_from_env(
             )
         })
         .collect();
+    let compute = ComputeLoad::from_env()?;
+    let http = reqwest::Client::new();
     tokio::spawn(async move {
         for ch in &channels {
             let _ = ch.enable().await;
         }
+        // Last good node draw: a failed read holds it rather than dropping
+        // compute out of the site load.
+        let mut node_w: Option<f64> = None;
         loop {
+            if let Some((_, url)) = &compute {
+                match node_power(&http, url).await {
+                    Some(w) => node_w = Some(w),
+                    None => warn!(%url, "POI meter: node power unreadable; holding last"),
+                }
+            }
+            let load = site_load(
+                fixed_load,
+                compute.as_ref().zip(node_w).map(|((c, _), w)| (c, w)),
+            );
             let mut powers = Vec::with_capacity(channels.len());
             for ch in &channels {
                 match read_rack_power(ch).await {
@@ -84,7 +101,7 @@ pub fn spawn_from_env(
                 }
             }
             if powers.len() == channels.len() {
-                let p_poi = poi_active_power(site_load, &powers);
+                let p_poi = poi_active_power(load, &powers);
                 let mut guard = handler.lock().unwrap();
                 let h = &mut **guard;
                 write_poi_power(&mut h.holding, &h.driven, p_poi);

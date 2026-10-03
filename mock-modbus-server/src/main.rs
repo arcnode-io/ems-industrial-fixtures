@@ -18,6 +18,7 @@
 //!   `bess_rack` and `dc_external` are always writable.
 
 mod battery;
+mod compute_load;
 mod control;
 mod dc_external;
 mod handler;

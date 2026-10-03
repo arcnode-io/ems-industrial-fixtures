@@ -83,23 +83,34 @@ pub fn spawn_from_env(
         // compute out of the site load.
         let mut node_w: Option<f64> = None;
         loop {
-            if let Some((_, url)) = &compute {
-                match node_power(&http, url).await {
+            // Reason: a real meter measures one instant. Reading the racks
+            // and the compute load one after another let the gateway's
+            // rebalance land between reads, showing a net export that
+            // never flowed.
+            let racks: Vec<_> = channels
+                .iter()
+                .map(|ch| tokio::spawn(read_rack_power(ch.clone())))
+                .collect();
+            let compute_read = compute.as_ref().map(|(_, url)| {
+                let (http, url) = (http.clone(), url.clone());
+                tokio::spawn(async move { node_power(&http, &url).await })
+            });
+            let mut powers = Vec::with_capacity(racks.len());
+            for rack in racks {
+                if let Ok(Some(p)) = rack.await {
+                    powers.push(p);
+                }
+            }
+            if let Some(read) = compute_read {
+                match read.await.ok().flatten() {
                     Some(w) => node_w = Some(w),
-                    None => warn!(%url, "POI meter: node power unreadable; holding last"),
+                    None => warn!("POI meter: node power unreadable; holding last"),
                 }
             }
             let load = site_load(
                 fixed_load,
                 compute.as_ref().zip(node_w).map(|((c, _), w)| (c, w)),
             );
-            let mut powers = Vec::with_capacity(channels.len());
-            for ch in &channels {
-                match read_rack_power(ch).await {
-                    Some(p) => powers.push(p),
-                    None => break,
-                }
-            }
             if powers.len() == channels.len() {
                 let p_poi = poi_active_power(load, &powers);
                 let mut guard = handler.lock().unwrap();
@@ -115,11 +126,10 @@ pub fn spawn_from_env(
 }
 
 /// One rack's active_power (W), or None if the read failed.
-async fn read_rack_power(channel: &Channel) -> Option<f64> {
+async fn read_rack_power(mut channel: Channel) -> Option<f64> {
     let range = AddressRange::try_from(RACK_ACTIVE_POWER, 2).ok()?;
     let param = RequestParam::new(UnitId::new(1), READ_TIMEOUT);
-    let mut ch = channel.clone();
-    let words = ch.read_holding_registers(param, range).await.ok()?;
+    let words = channel.read_holding_registers(param, range).await.ok()?;
     let (high, low) = (words.first()?.value, words.get(1)?.value);
     Some(f64::from(((u32::from(high) << 16) | u32::from(low)) as i32))
 }

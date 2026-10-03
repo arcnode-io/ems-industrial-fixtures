@@ -97,6 +97,8 @@ pub fn readings(
         let hundredths_a = power_w / 3.0 / volts * 100.0;
         out.insert(sentry4(4, &[phase]), hundredths_a.round() as i64);
     }
+    let raritan = crate::raritan::mirror(&out);
+    out.extend(raritan);
     out
 }
 

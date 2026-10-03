@@ -1,5 +1,5 @@
-//! Canned OID map for the `pdu` template (Server Technology PRO3X, Sentry4-
-//! MIB, enterprise 1718) and the `network_switch` template (NVIDIA SN5600 on
+//! Canned OID map for the `pdu` template (Sentry4-MIB, enterprise 1718,
+//! also served as Raritan PDU2-MIB, see `raritan`) and the `network_switch` template (NVIDIA SN5600 on
 //! Cumulus: IF-MIB + ENTITY-SENSOR-MIB), mirroring edp-api's pdu.yaml and
 //! network_switch.yaml. Values are raw MIB integers; the template's scale
 //! turns them into units. The OID trees don't overlap, so one agent serves
@@ -35,6 +35,13 @@ pub const OID_INPUT_CURRENT: &[u32] = &[1, 3, 6, 1, 4, 1, 1718, 4, 1, 4, 3, 1, 3
 
 /// Build the initial OID → integer-value map.
 pub fn initial_values() -> HashMap<Vec<u32>, i64> {
+    let mut values = sentry4_and_switch();
+    values.extend(crate::raritan::mirror(&values));
+    values
+}
+
+/// The Sentry4 PDU readings and the switch's, before the Raritan mirror.
+fn sentry4_and_switch() -> HashMap<Vec<u32>, i64> {
     let sentry4 =
         |table: u32, phase: u32| vec![1, 3, 6, 1, 4, 1, 1718, 4, 1, table, 3, 1, 3, 1, 1, phase];
     HashMap::from([

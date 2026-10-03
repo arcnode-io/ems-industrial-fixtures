@@ -4,6 +4,7 @@
 mod control;
 mod oids;
 mod pdu_load;
+mod raritan;
 mod simulator;
 mod usm;
 mod v3;
@@ -83,6 +84,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let owned = sim_driven.lock().await;
                 let mut v = sim_values.lock().await;
                 sim.tick(&mut v, &owned);
+                // Keep the PDU2-MIB view in step with the drifting Sentry4 one.
+                let mirrored = raritan::mirror(&v);
+                v.extend(mirrored);
             }
             tokio::time::sleep(Duration::from_millis(tick_ms)).await;
         }

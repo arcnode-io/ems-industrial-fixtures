@@ -1,5 +1,10 @@
 //! Simulated bess_rack battery (`MODBUS_PROFILE=bess_rack`).
 
+use crate::derate;
+use crate::rack_registers::{
+    ACTIVE_POWER, CHARGING, DISCHARGING, ENERGY_DISCHARGED, MAX_CHARGE, MAX_DISCHARGE,
+    OPERATING_STATE, SETPOINT, SOC, STANDBY, initial_registers, put, put_i32, read_i32,
+};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -74,18 +79,27 @@ impl Battery {
                 ENERGY_DISCHARGED,
                 self.energy_discharged_wh.round() as i32,
             );
+            let (charge, discharge) = self.limits();
+            put_i32(holding, driven, MAX_CHARGE, charge.round() as i32);
+            put_i32(holding, driven, MAX_DISCHARGE, discharge.round() as i32);
         }
         put(holding, driven, OPERATING_STATE, state);
     }
 
-    /// The setpoint the rack can actually deliver: clamped to nameplate, and
-    /// zero when it would discharge an empty rack or charge a full one.
+    /// Present `(max_charge, max_discharge)` magnitudes at this SoC.
+    fn limits(&self) -> (f64, f64) {
+        let (rated, soc) = (self.config.power_limit_w, self.soc_percent);
+        (
+            derate::max_charge_w(rated, soc),
+            derate::max_discharge_w(rated, soc),
+        )
+    }
+
+    /// The setpoint the rack can actually deliver: within its present
+    /// limits, which are 0 W when discharging empty or charging full.
     fn deliverable(&self, setpoint_w: f64) -> f64 {
-        let limit = self.config.power_limit_w;
-        let power = setpoint_w.clamp(-limit, limit);
-        let empty = power > 0.0 && self.soc_percent <= 0.0;
-        let full = power < 0.0 && self.soc_percent >= 100.0;
-        if empty || full { 0.0 } else { power }
+        let (charge, discharge) = self.limits();
+        setpoint_w.clamp(-charge, discharge)
     }
 }
 
@@ -115,7 +129,8 @@ pub fn from_env() -> Result<(Battery, HashMap<u16, u16>), String> {
         power_limit_w: RACK_POWER_LIMIT_W,
         time_scale,
     };
-    Ok((Battery::new(config, soc), initial_registers(soc)))
+    let registers = initial_registers(soc, RACK_POWER_LIMIT_W);
+    Ok((Battery::new(config, soc), registers))
 }
 
 /// Parse an optional f64 env var, falling back to `default` when unset.
@@ -126,69 +141,6 @@ fn env_f64(name: &str, default: f64) -> Result<f64, String> {
             .map_err(|_| format!("{name} is not a number: {raw}")),
         Err(_) => Ok(default),
     }
-}
-
-/// state_of_charge register (uint16, scale 0.1), per bess_rack.yaml.
-const SOC: u16 = 0;
-/// active_power register pair (int32 high_low).
-const ACTIVE_POWER: u16 = 10;
-/// energy_discharged register pair (int32 high_low, Wh).
-const ENERGY_DISCHARGED: u16 = 30;
-/// operating_state register.
-const OPERATING_STATE: u16 = 40;
-/// set_active_power command register pair (int32 high_low).
-const SETPOINT: u16 = 50;
-
-/// operating_state STANDBY.
-const STANDBY: u16 = 0;
-/// operating_state CHARGING.
-const CHARGING: u16 = 1;
-/// operating_state DISCHARGING.
-const DISCHARGING: u16 = 2;
-
-/// Initial register map for a rack at `soc_percent`: 480.0 V, 60.00 Hz,
-/// idle, no reactive power.
-pub fn initial_registers(soc_percent: f64) -> HashMap<u16, u16> {
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let soc = (soc_percent * 10.0).round() as u16;
-    HashMap::from([
-        (SOC, soc),
-        (10, 0),
-        (11, 0),
-        (12, 0),
-        (13, 0),
-        (20, 4800),
-        (22, 6000),
-        (30, 0),
-        (31, 0),
-        (OPERATING_STATE, STANDBY),
-        (SETPOINT, 0),
-        (SETPOINT + 1, 0),
-    ])
-}
-
-/// Read an int32 (high word first) from two consecutive registers.
-fn read_i32(holding: &HashMap<u16, u16>, addr: u16) -> i32 {
-    let high = u32::from(*holding.get(&addr).unwrap_or(&0));
-    let low = u32::from(*holding.get(&(addr + 1)).unwrap_or(&0));
-    ((high << 16) | low) as i32
-}
-
-/// Write a register unless the control surface is driving it.
-fn put(holding: &mut HashMap<u16, u16>, driven: &HashSet<u16>, addr: u16, value: u16) {
-    if !driven.contains(&addr) {
-        holding.insert(addr, value);
-    }
-}
-
-/// Write an int32 (high word first) unless either word is driven.
-fn put_i32(holding: &mut HashMap<u16, u16>, driven: &HashSet<u16>, addr: u16, value: i32) {
-    if driven.contains(&addr) || driven.contains(&(addr + 1)) {
-        return;
-    }
-    let raw = value as u32;
-    holding.insert(addr, (raw >> 16) as u16);
-    holding.insert(addr + 1, raw as u16);
 }
 
 #[cfg(test)]

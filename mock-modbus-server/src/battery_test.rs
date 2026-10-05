@@ -122,3 +122,30 @@ fn discharge_accumulates_energy_discharged() {
     let wh = (u32::from(holding[&30]) << 16) | u32::from(holding[&31]);
     assert_eq!(wh, 400_000);
 }
+
+fn register_i32(holding: &HashMap<u16, u16>, addr: u16) -> i32 {
+    ((u32::from(holding[&addr]) << 16) | u32::from(holding[&(addr + 1)])) as i32
+}
+
+#[test]
+fn reports_its_present_limits_on_60_and_62() {
+    // Arrange — 10% SoC: discharge halved, charge at rated
+    let mut battery = Battery::new(config(1.0), 10.0);
+    let mut holding = commanded(0);
+    // Act
+    battery.step(&mut holding, &HashSet::new(), Duration::from_secs(1));
+    // Assert
+    assert_eq!(register_i32(&holding, 60), 4_000_000); // max_charge_power
+    assert_eq!(register_i32(&holding, 62), 2_000_000); // max_discharge_power
+}
+
+#[test]
+fn output_obeys_the_present_limit() {
+    // Arrange — asked for full discharge at 10% SoC
+    let mut battery = Battery::new(config(1.0), 10.0);
+    let mut holding = commanded(4_000_000);
+    // Act
+    battery.step(&mut holding, &HashSet::new(), Duration::from_secs(1));
+    // Assert — only the derated 2 MW comes out
+    assert_eq!(active_power(&holding), 2_000_000);
+}

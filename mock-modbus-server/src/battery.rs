@@ -103,10 +103,12 @@ impl Battery {
     }
 }
 
-/// Tesla Megapack 2 XL capacity, per edp-api bess_rack.yaml `capacity_kwh`.
-const RACK_CAPACITY_KWH: f64 = 4000.0;
-/// Per edp-api bess_rack.yaml `active_power.bounds` (±4 MW).
-const RACK_POWER_LIMIT_W: f64 = 4_000_000.0;
+/// Megapack 2 XL 2-hour (EXT-BESS-001), per edp-api bess_rack.yaml
+/// `capacity_kwh`.
+const RACK_CAPACITY_KWH: f64 = 3854.0;
+/// Per edp-api bess_rack.yaml `active_power.bounds` (±1927 kW), the rated
+/// plateau of `max_charge_power` / `max_discharge_power`.
+const RACK_POWER_LIMIT_W: f64 = 1_927_000.0;
 /// Default initial SoC, well above any plausible reserve floor.
 const DEFAULT_INITIAL_SOC_PERCENT: f64 = 60.0;
 

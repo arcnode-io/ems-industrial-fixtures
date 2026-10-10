@@ -22,6 +22,9 @@ use tracing::info;
 /// Shared OID value map (same Arc the UDP handler + simulator use).
 pub type SharedValues = Arc<Mutex<HashMap<Vec<u32>, i64>>>;
 /// OIDs owned by the control surface; the simulator skips these.
+/// Lock order: `DrivenSet` before `SharedValues`, everywhere. Reason: a writer
+/// holding values while waiting on driven deadlocks the drift sim, and every
+/// SNMP GET then hangs behind it.
 pub type DrivenSet = Arc<Mutex<HashSet<Vec<u32>>>>;
 
 /// Control router state.
@@ -65,8 +68,8 @@ async fn put_oids(State(state): State<ControlState>, Json(body): Json<SetOids>) 
             None => return StatusCode::UNPROCESSABLE_ENTITY,
         }
     }
-    let mut values = state.values.lock().await;
     let mut driven = state.driven.lock().await;
+    let mut values = state.values.lock().await;
     for (oid, value) in parsed {
         values.insert(oid.clone(), value);
         driven.insert(oid);
@@ -130,6 +133,30 @@ mod tests {
         let values = s.values.lock().await;
         assert_eq!(values.get(&OID_INPUT_CURRENT.to_vec()), Some(&32));
         assert!(s.driven.lock().await.contains(&OID_INPUT_CURRENT.to_vec()));
+    }
+
+    #[tokio::test]
+    async fn put_never_holds_values_while_waiting_on_driven() {
+        // Arrange — the drift sim mid-tick holds `driven` and wants `values`
+        let s = state();
+        let sim_holds = s.driven.clone().lock_owned().await;
+        let request = Request::builder()
+            .method("PUT")
+            .uri("/oids")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"values":{"1.3.6.1.4.1.1718.4.1.4.3.1.3.1.1.1":32}}"#,
+            ))
+            .unwrap();
+
+        // Act
+        let put = tokio::spawn(control_router(s.clone()).oneshot(request));
+        tokio::task::yield_now().await;
+
+        // Assert — the sim can still take `values`, so neither side deadlocks
+        assert!(s.values.try_lock().is_ok());
+        drop(sim_holds);
+        put.await.unwrap().unwrap();
     }
 
     #[tokio::test]

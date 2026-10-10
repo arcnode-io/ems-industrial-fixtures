@@ -42,10 +42,8 @@ pub fn spawn_from_env(values: SharedValues, driven: DrivenSet) -> Result<(), Str
         loop {
             match node_power(&client, &url).await {
                 Ok(node_w) => {
-                    let mut v = values.lock().await;
-                    let next = readings(&load, node_w, &v);
-                    driven.lock().await.extend(next.keys().cloned());
-                    v.extend(next);
+                    let next = readings(&load, node_w, &*values.lock().await);
+                    store(values.clone(), driven.clone(), next).await;
                 }
                 Err(e) => warn!(%url, error = %e, "PDU load: node power unavailable"),
             }
@@ -53,6 +51,13 @@ pub fn spawn_from_env(values: SharedValues, driven: DrivenSet) -> Result<(), Str
         }
     });
     Ok(())
+}
+
+/// Mark `next`'s OIDs driven and store them.
+pub async fn store(values: SharedValues, driven: DrivenSet, next: HashMap<Vec<u32>, i64>) {
+    let mut d = driven.lock().await;
+    d.extend(next.keys().cloned());
+    values.lock().await.extend(next);
 }
 
 /// A node's `PowerControl/0/PowerConsumedWatts` from its chassis Power.

@@ -48,3 +48,19 @@ fn capped_gpus_lower_the_pdus_power() {
     let capped = readings(&CONTAINER_PDU, 8_980.0, &initial_values())[&oid(3, &[])];
     assert!(capped < full);
 }
+
+#[tokio::test]
+async fn store_never_holds_values_while_waiting_on_driven() {
+    // Arrange — the drift sim mid-tick holds `driven` and wants `values`
+    let values: crate::control::SharedValues = Default::default();
+    let driven: crate::control::DrivenSet = Default::default();
+    let sim_holds = driven.clone().lock_owned().await;
+    let next = readings(&CONTAINER_PDU, 10_500.0, &initial_values());
+    // Act
+    let pdu = tokio::spawn(super::store(values.clone(), driven.clone(), next));
+    tokio::task::yield_now().await;
+    // Assert — the sim can still take `values`, so neither side deadlocks
+    assert!(values.try_lock().is_ok());
+    drop(sim_holds);
+    pdu.await.unwrap();
+}

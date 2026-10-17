@@ -108,8 +108,8 @@ async fn every_sel351_point_reads_back_over_dnp3() {
     // Assert — the power-engineer's map: currents A, voltages kV, targets 0/1
     let got = captured.lock().expect("capture lock");
     let near = |k: (u8, u16), want: f64| (got[&k] - want).abs() < 1e-3;
-    assert!(near((30, 0), 150.0) && near((30, 2), 152.0) && near((30, 4), 148.0));
-    assert!(near((30, 8), 7.20) && near((30, 10), 7.18) && near((30, 12), 7.22));
+    assert!(near((30, 0), 8.5) && near((30, 2), 8.7) && near((30, 4), 8.4));
+    assert!(near((30, 8), 7.97) && near((30, 10), 7.95) && near((30, 12), 7.99));
     assert_eq!(got[&(1, 0)], 1.0, "breaker_closed");
     assert_eq!(got[&(1, 9)], 0.0, "trip_status");
     assert_eq!(got[&(1, 15)], 0.0, "ground_fault");

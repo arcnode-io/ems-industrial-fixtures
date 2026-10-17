@@ -16,7 +16,7 @@ use dnp3::master::{
 use dnp3::outstation::OutstationConfig;
 use dnp3::outstation::database::EventBufferConfig;
 use dnp3::tcp::{AddressFilter, EndpointList, Server, spawn_master_tcp_client};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tower::util::ServiceExt;
 
@@ -72,11 +72,7 @@ async fn control_write_is_readable_over_real_dnp3() {
         )
         .expect("add outstation");
     let _server_handle = server.bind().await.expect("bind");
-    let driven = Arc::new(Mutex::new(HashSet::new()));
-    let state = ControlState {
-        outstation,
-        driven: driven.clone(),
-    };
+    let state = ControlState { outstation };
 
     // Act — control write to an unseeded index (seed-on-demand path)
     let request = Request::builder()
@@ -118,12 +114,11 @@ async fn control_write_is_readable_over_real_dnp3() {
         .await
         .expect("read");
 
-    // Assert — the driven value came back over the wire, index marked driven
+    // Assert — the driven value came back over the wire
     let value = *captured
         .lock()
         .expect("capture lock")
         .get(&1)
         .expect("point 1 present");
     assert_eq!(value, 5_000_000.0);
-    assert!(driven.lock().expect("driven lock").contains(&1));
 }

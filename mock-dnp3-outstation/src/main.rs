@@ -1,6 +1,6 @@
 //! mock-dnp3-outstation — DNP3 TCP / DNP3 over TLS server fixture.
-//! Serves a SEL-351 protective relay's DNP3 points (see `sel351`); phase A
-//! current (AI 0) is driven by a simulator.
+//! Serves a SEL-351 protective relay's DNP3 points (see `sel351`), held at
+//! their seeded values unless the control surface drives them.
 //!
 //! Modes selected by env:
 //! - `DNP3_TLS=1` → DNP3/TLS (CA-validated mTLS, TLS 1.3).
@@ -15,17 +15,12 @@ mod outstation;
 mod sel351;
 #[cfg(test)]
 mod sel351_test;
-mod simulator;
 
 use dnp3::link::LinkErrorMode;
 use dnp3::tcp::tls::{MinTlsVersion, TlsServerConfig};
 use dnp3::tcp::{AddressFilter, Server};
 use outstation::{App, Ctl, Info, NopListener, outstation_config};
-use simulator::Simulator;
-use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tracing::info;
 
 /// Standards-defined DNP3/TLS port per IEEE 1815-2012 Annex E.
@@ -49,10 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(default_port);
-    let tick_ms: u64 = std::env::var("TICK_MS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1000);
     let control_port: u16 = std::env::var("CONTROL_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -79,30 +70,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _server_handle = server.bind().await?;
     let mode = if tls_mode { "TLS" } else { "plain" };
-    info!(%port, tick_ms, mode, "mock-dnp3-outstation listening");
+    info!(%port, mode, "mock-dnp3-outstation listening");
 
-    let driven: control::DrivenSet = Arc::new(Mutex::new(HashSet::new()));
     control::spawn_control(
         control::ControlState {
             outstation: outstation.clone(),
-            driven: driven.clone(),
         },
         control_port,
     )
     .await?;
-
-    // Simulator tick — skips control-driven points.
-    let mut sim = Simulator::new();
-    let outstation_for_sim = outstation.clone();
-    tokio::spawn(async move {
-        loop {
-            {
-                let owned = driven.lock().expect("driven lock poisoned");
-                sim.tick(&outstation_for_sim, &owned);
-            }
-            tokio::time::sleep(Duration::from_millis(tick_ms)).await;
-        }
-    });
 
     tokio::signal::ctrl_c().await?;
     Ok(())

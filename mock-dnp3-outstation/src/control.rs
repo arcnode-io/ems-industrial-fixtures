@@ -19,22 +19,16 @@ use dnp3::outstation::database::{
     Update, UpdateOptions,
 };
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tracing::info;
-
-/// Point indices owned by the control surface; the simulator skips these.
-pub type DrivenSet = Arc<Mutex<HashSet<u16>>>;
 
 /// Shared state for the control router.
 #[derive(Clone)]
 pub struct ControlState {
     /// Handle into the outstation database.
     pub outstation: OutstationHandle,
-    /// Indices the simulator must no longer clobber.
-    pub driven: DrivenSet,
 }
 
 /// Batch point write: `{ "analog_inputs": { "0": 410.0, "8": 7.05 } }`
@@ -45,15 +39,14 @@ pub struct SetPoints {
     pub analog_inputs: HashMap<u16, f64>,
 }
 
-/// Build the control router over the outstation handle + driven set.
+/// Build the control router over the outstation handle.
 pub fn control_router(state: ControlState) -> Router {
     Router::new()
         .route("/points", put(put_points))
         .with_state(state)
 }
 
-/// Apply a batch write in one transaction; seed unknown indices on demand
-/// and mark every index control-driven.
+/// Apply a batch write in one transaction; seed unknown indices on demand.
 async fn put_points(State(state): State<ControlState>, Json(body): Json<SetPoints>) -> StatusCode {
     state.outstation.transaction(|db| {
         for (&index, &value) in &body.analog_inputs {
@@ -72,8 +65,6 @@ async fn put_points(State(state): State<ControlState>, Json(body): Json<SetPoint
             }
         }
     });
-    let mut driven = state.driven.lock().expect("driven lock poisoned");
-    driven.extend(body.analog_inputs.keys());
     StatusCode::NO_CONTENT
 }
 

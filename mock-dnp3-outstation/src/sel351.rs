@@ -5,8 +5,8 @@
 //!
 //! | measurement           | point | value      |
 //! |-----------------------|-------|------------|
-//! | phase_a/b/c_current   | AI 0/2/4   | 150 / 152 / 148 A |
-//! | phase_voltage_a/b/c   | AI 8/10/12 | 7.20 / 7.18 / 7.22 kV (12.47 kV L-L) |
+//! | phase_a/b/c_current   | AI 0/2/4   | 8.5 / 8.7 / 8.4 A (~202 kW, PF 0.98) |
+//! | phase_voltage_a/b/c   | AI 8/10/12 | 7.97 / 7.95 / 7.99 kV (13.8 kV L-L) |
 //! | breaker_closed        | BI 0  | set (52A)        |
 //! | trip_status           | BI 9  | clear (TRIP_LED) |
 //! | ground_fault          | BI 15 | clear (G target) |
@@ -24,12 +24,12 @@ use dnp3::outstation::database::{
 
 /// Analog inputs: (point index, value in the relay's primary units).
 const ANALOGS: [(u16, f64); 6] = [
-    (0, 150.0),
-    (2, 152.0),
-    (4, 148.0),
-    (8, 7.20),
-    (10, 7.18),
-    (12, 7.22),
+    (0, 8.5),
+    (2, 8.7),
+    (4, 8.4),
+    (8, 7.97),
+    (10, 7.95),
+    (12, 7.99),
 ];
 
 /// Binary inputs: (point index, set).

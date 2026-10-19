@@ -8,7 +8,7 @@ use std::collections::HashMap;
 const ACTIVE_POWER: u32 = 5;
 /// Pole sensor type: rmsCurrent.
 const RMS_CURRENT: u32 = 1;
-/// Pole sensor type: rmsVoltage.
+/// Pole sensor type: rmsVoltage, line-to-line (L-N is its own sensor).
 const RMS_VOLTAGE: u32 = 4;
 
 /// measurementsInletSensorValue, activePower (W).
@@ -34,7 +34,7 @@ pub fn inlet_power() -> Vec<u32> {
 }
 
 /// measurementsInletPoleSensorValue for `pole` (L1..L3) and `sensor`
-/// (1 rmsCurrent mA, 4 rmsVoltage V).
+/// (1 rmsCurrent mA, 4 rmsVoltage V line-to-line).
 pub fn pole(pole: u32, sensor: u32) -> Vec<u32> {
     vec![
         1, 3, 6, 1, 4, 1, 13742, 6, 5, 2, 4, 1, 4, 1, 1, pole, sensor,
@@ -56,14 +56,15 @@ pub fn mirror(sentry4: &HashMap<Vec<u32>, i64>) -> HashMap<Vec<u32>, i64> {
         out.insert(inlet_power(), watts);
     }
     for p in 1..=3 {
-        // Sentry4 hundredths of an amp → milliamps; tenths of a volt → volts.
+        // Sentry4 hundredths of an amp → milliamps; tenths of a phase volt →
+        // line-to-line volts (√3 × phase on the 415/240 V wye).
         if let Some(centiamps) = at(4, &[p]) {
             out.insert(pole(p, RMS_CURRENT), centiamps * 10);
         }
         if let Some(decivolts) = at(5, &[p]) {
             out.insert(
                 pole(p, RMS_VOLTAGE),
-                (decivolts as f64 / 10.0).round() as i64,
+                (decivolts as f64 / 10.0 * 3f64.sqrt()).round() as i64,
             );
         }
     }

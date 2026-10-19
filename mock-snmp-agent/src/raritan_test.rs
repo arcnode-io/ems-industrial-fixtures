@@ -13,11 +13,12 @@ const RMS_VOLTAGE: u32 = 4;
 fn the_inlet_reports_power_and_each_poles_current_and_voltage() {
     // Act
     let m = initial_values();
-    // Assert — watts, milliamps (3 decimal digits), volts (0 decimal digits)
+    // Assert — watts, milliamps (3 decimal digits), line-to-line volts
+    // (0 decimal digits): √3 × the 240 V phase
     assert_eq!(m[&inlet_power()], 10_800);
     assert_eq!(m[&pole(1, RMS_CURRENT)], 15_000);
     assert_eq!(m[&pole(3, RMS_CURRENT)], 14_800);
-    assert_eq!(m[&pole(1, RMS_VOLTAGE)], 240);
+    assert_eq!(m[&pole(1, RMS_VOLTAGE)], 416);
     assert_eq!(
         inlet_power(),
         vec![1, 3, 6, 1, 4, 1, 13742, 6, 5, 2, 3, 1, 4, 1, 1, 5]

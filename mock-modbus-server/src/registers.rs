@@ -6,6 +6,7 @@
 //! | measurement    | addr        | type    | value               |
 //! |----------------|-------------|---------|---------------------|
 //! | active_power   | 3060-3061   | float32 | live, + import W    |
+//! | frequency      | 3110-3111   | float32 | 60.0 Hz             |
 //! | power_factor   | 3150-3151   | float32 | 0.98                |
 //! | kwh_delivered  | 3204-3207   | int64   | 1_000_000 Wh        |
 //! | kwh_received   | 3208-3211   | int64   | 250_000 Wh          |
@@ -27,6 +28,9 @@ pub fn holding_registers() -> HashMap<u16, u16> {
         // active_power, float32 0.0
         (3060, 0),
         (3061, 0),
+        // frequency, float32 60.0
+        (3110, 0x4270),
+        (3111, 0),
         // power_factor, float32 0.98
         (3150, 0x3F7A),
         (3151, 0xE148),
@@ -79,5 +83,6 @@ mod tests {
         assert!((f32_at(&m, 21332) - 2.35).abs() < 1e-6, "thd_voltage_b");
         assert!((f32_at(&m, 21334) - 1.95).abs() < 1e-6, "thd_voltage_c");
         assert_eq!(f32_at(&m, 3060), 0.0, "active_power");
+        assert_eq!(f32_at(&m, 3110), 60.0, "frequency");
     }
 }
